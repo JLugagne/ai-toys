@@ -13,7 +13,6 @@
   const presetButtons = document.querySelectorAll("#frame-presets button");
   const photoInput = document.getElementById("photo-input");
   const fileDropLabel = document.getElementById("file-drop-label");
-  const zoomSlider = document.getElementById("zoom-slider");
   const exportBtn = document.getElementById("export-btn");
   const statusMsg = document.getElementById("status-msg");
   const specLine = document.getElementById("spec-line");
@@ -24,8 +23,9 @@
   const ctx = canvas.getContext("2d");
 
   let image = null; // HTMLImageElement
-  let minScale = 1; // scale at which image just covers the frame
+  let minScale = 1; // scale at which image just covers the frame + bleed
   let scale = 1; // current zoom, >= minScale
+  let zoomFactor = 1; // scale / minScale, kept in [1, 4]
   let offsetX = 0; // image center offset from frame center, in frame-cm space
   let offsetY = 0;
 
@@ -140,10 +140,7 @@
     layoutStage();
     if (image) {
       minScale = computeMinScale();
-      scale = Math.max(scale, minScale);
-      zoomSlider.min = "1";
-      zoomSlider.max = "4";
-      zoomSlider.value = String(scale / minScale);
+      scale = minScale * zoomFactor;
       clampOffset();
     }
     updateSpecLine();
@@ -158,10 +155,9 @@
         image = img;
         minScale = computeMinScale();
         scale = minScale;
+        zoomFactor = 1;
         offsetX = 0;
         offsetY = 0;
-        zoomSlider.disabled = false;
-        zoomSlider.value = "1";
         exportBtn.disabled = false;
         placeholderMsg.style.display = "none";
         cropStage.classList.remove("empty");
@@ -217,13 +213,6 @@
     if (!image) photoInput.click();
   });
 
-  zoomSlider.addEventListener("input", () => {
-    const factor = parseFloat(zoomSlider.value);
-    scale = minScale * factor;
-    clampOffset();
-    draw();
-  });
-
   let dragging = false;
   let dragStartX = 0;
   let dragStartY = 0;
@@ -254,7 +243,7 @@
   }
 
   function applyZoomFactor(clamped) {
-    zoomSlider.value = String(clamped);
+    zoomFactor = clamped;
     scale = minScale * clamped;
     clampOffset();
     draw();
@@ -284,7 +273,7 @@
         dragging = false;
         cropStage.classList.remove("dragging");
         pinchStartDist = touchDistance(e.touches);
-        pinchStartZoom = parseFloat(zoomSlider.value);
+        pinchStartZoom = zoomFactor;
       }
     },
     { passive: true }
@@ -322,7 +311,7 @@
     (e) => {
       if (!image) return;
       e.preventDefault();
-      const factor = parseFloat(zoomSlider.value) - e.deltaY * 0.001;
+      const factor = zoomFactor - e.deltaY * 0.001;
       applyZoomFactor(Math.min(4, Math.max(1, factor)));
     },
     { passive: false }

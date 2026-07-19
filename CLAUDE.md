@@ -2,12 +2,21 @@
 
 A collection of small, single-usage static tools hosted on GitHub Pages (https://jlugagne.github.io/ai-toys/). No backend, no build step — plain HTML/CSS/JS, deployed via the GitHub Actions workflow in `.github/workflows/pages.yml` on every push to `main`.
 
+## Standalone, no-server requirement (non-negotiable)
+
+Every tool in this repo must be **fully standalone and client-side**, with **zero server component**:
+
+- No backend, no API calls, no server-side processing of any kind — not even a tiny one. If a tool's idea requires a server (auth, a database, sending email, anything that can't run entirely in the visitor's browser), it does not belong in this repo as currently scoped; flag that to the user instead of building a server piece.
+- No CDN dependencies, no external fonts, no analytics/tracking scripts, no calls to third-party APIs. If a tool needs a library, vendor it locally into that tool's own folder (see `photo-frame-pdf/vendor/jspdf.umd.min.js` for the pattern) and check for the latest version before vendoring.
+- A user should be able to save a tool's folder locally and open `index.html` directly (or serve it from any static file server) with full functionality — no build step, no network access required after the page loads.
+- This applies to every new tool added to the repo, not just the ones that mention it explicitly in their own copy.
+
 ## Adding a new tool
 
 1. Create a folder at the repo root named after the tool (e.g. `my-tool/`), with at least an `index.html`.
 2. Link the shared stylesheet from `assets/style.css` alongside a tool-specific `style.css` (see below).
 3. Add an entry to the `tool-list` in the root `index.html`.
-4. Everything must run fully client-side — no server calls, no analytics, no CDN dependencies. Vendor any third-party library locally (see `photo-frame-pdf/vendor/`).
+4. Everything must run fully client-side per the standalone requirement above.
 
 ## Shared design system
 

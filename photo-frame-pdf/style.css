@@ -74,7 +74,58 @@ body.wide {
 }
 
 .orientation-row {
+  display: flex;
+  gap: 0.5rem;
   margin-top: -0.25rem;
+}
+
+.orientation-option {
+  position: relative;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.5rem 0.5rem 0.4rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 0.75rem;
+  cursor: pointer;
+  opacity: 0.75;
+}
+
+.orientation-option:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  opacity: 1;
+}
+
+.orientation-option:has(input:checked) {
+  border-color: var(--accent);
+  color: var(--accent);
+  opacity: 1;
+}
+
+.orientation-option input[type="radio"] {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+.orientation-option:has(input:focus-visible) {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.orientation-icon {
+  width: 22px;
+  height: 22px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.75;
 }
 
 input[type="number"] {
@@ -150,15 +201,6 @@ button.primary:focus-visible {
   font-size: 0.78rem;
   opacity: 0.65;
   margin: 0.4rem 0 0;
-}
-
-.zoom-label {
-  width: 100%;
-}
-
-input[type="range"] {
-  width: 100%;
-  accent-color: var(--accent);
 }
 
 button.primary {
