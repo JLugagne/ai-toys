@@ -253,15 +253,38 @@
     cropStage.classList.remove("dragging");
   }
 
+  function applyZoomFactor(clamped) {
+    zoomSlider.value = String(clamped);
+    scale = minScale * clamped;
+    clampOffset();
+    draw();
+  }
+
   cropStage.addEventListener("mousedown", (e) => pointerDown(e.clientX, e.clientY));
   window.addEventListener("mousemove", (e) => pointerMove(e.clientX, e.clientY));
   window.addEventListener("mouseup", pointerUp);
+
+  // Two-finger pinch to zoom: track the distance between the two touches and
+  // scale relative to how that distance changes, independent of single-finger pan.
+  let pinchStartDist = 0;
+  let pinchStartZoom = 1;
+
+  function touchDistance(touches) {
+    const dx = touches[0].clientX - touches[1].clientX;
+    const dy = touches[0].clientY - touches[1].clientY;
+    return Math.hypot(dx, dy);
+  }
 
   cropStage.addEventListener(
     "touchstart",
     (e) => {
       if (e.touches.length === 1) {
         pointerDown(e.touches[0].clientX, e.touches[0].clientY);
+      } else if (e.touches.length === 2) {
+        dragging = false;
+        cropStage.classList.remove("dragging");
+        pinchStartDist = touchDistance(e.touches);
+        pinchStartZoom = parseFloat(zoomSlider.value);
       }
     },
     { passive: true }
@@ -269,14 +292,30 @@
   cropStage.addEventListener(
     "touchmove",
     (e) => {
-      if (e.touches.length === 1) {
+      if (e.touches.length === 2 && image) {
+        e.preventDefault();
+        const dist = touchDistance(e.touches);
+        if (pinchStartDist > 0) {
+          const factor = pinchStartZoom * (dist / pinchStartDist);
+          applyZoomFactor(Math.min(4, Math.max(1, factor)));
+        }
+      } else if (e.touches.length === 1) {
         pointerMove(e.touches[0].clientX, e.touches[0].clientY);
         e.preventDefault();
       }
     },
     { passive: false }
   );
-  cropStage.addEventListener("touchend", pointerUp);
+  cropStage.addEventListener("touchend", (e) => {
+    pointerUp();
+    if (e.touches.length === 1) {
+      // One finger still down after a pinch: resume panning from here
+      // instead of jumping using the stale drag-start position.
+      pointerDown(e.touches[0].clientX, e.touches[0].clientY);
+    } else {
+      pinchStartDist = 0;
+    }
+  });
 
   cropStage.addEventListener(
     "wheel",
@@ -284,11 +323,7 @@
       if (!image) return;
       e.preventDefault();
       const factor = parseFloat(zoomSlider.value) - e.deltaY * 0.001;
-      const clamped = Math.min(4, Math.max(1, factor));
-      zoomSlider.value = String(clamped);
-      scale = minScale * clamped;
-      clampOffset();
-      draw();
+      applyZoomFactor(Math.min(4, Math.max(1, factor)));
     },
     { passive: false }
   );
