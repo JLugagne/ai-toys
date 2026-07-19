@@ -5,15 +5,18 @@
     a4: { w: 21, h: 29.7 },
     letter: { w: 21.59, h: 27.94 },
   };
-  const PREVIEW_MAX_PX = 480; // cap the on-screen crop stage size
 
   const frameWidthInput = document.getElementById("frame-width");
   const frameHeightInput = document.getElementById("frame-height");
+  const orientationInputs = document.querySelectorAll('input[name="frame-orientation"]');
   const presetButtons = document.querySelectorAll("#frame-presets button");
   const photoInput = document.getElementById("photo-input");
+  const fileDropLabel = document.getElementById("file-drop-label");
   const zoomSlider = document.getElementById("zoom-slider");
   const exportBtn = document.getElementById("export-btn");
   const statusMsg = document.getElementById("status-msg");
+  const specLine = document.getElementById("spec-line");
+  const cropFrame = document.querySelector(".crop-frame");
   const cropStage = document.getElementById("crop-stage");
   const canvas = document.getElementById("crop-canvas");
   const placeholderMsg = document.getElementById("placeholder-msg");
@@ -31,16 +34,35 @@
     return { w, h };
   }
 
+  function getOrientation() {
+    return document.querySelector('input[name="frame-orientation"]:checked').value;
+  }
+
+  function setFrameCm(w, h) {
+    // Presets are defined in portrait terms (w <= h); swap for landscape.
+    const orientation = getOrientation();
+    const [finalW, finalH] = orientation === "landscape" ? [Math.max(w, h), Math.min(w, h)] : [Math.min(w, h), Math.max(w, h)];
+    frameWidthInput.value = finalW;
+    frameHeightInput.value = finalH;
+  }
+
   function getPreviewSize() {
     const { w, h } = getFrameCm();
     const aspect = w / h;
+
+    // Fit the frame's aspect ratio inside whatever space the crop-frame
+    // wrapper actually has, so it genuinely shrinks on small viewports
+    // instead of relying on a fixed pixel cap.
+    const availW = Math.max(80, cropFrame.clientWidth || 480);
+    const availH = Math.max(80, Math.min(window.innerHeight * 0.7, 480));
+
     let pxW, pxH;
-    if (aspect >= 1) {
-      pxW = PREVIEW_MAX_PX;
-      pxH = PREVIEW_MAX_PX / aspect;
+    if (availW / availH > aspect) {
+      pxH = availH;
+      pxW = availH * aspect;
     } else {
-      pxH = PREVIEW_MAX_PX;
-      pxW = PREVIEW_MAX_PX * aspect;
+      pxW = availW;
+      pxH = availW / aspect;
     }
     return { pxW, pxH };
   }
@@ -90,6 +112,12 @@
     ctx.drawImage(image, x, y, drawW, drawH);
   }
 
+  function updateSpecLine() {
+    const { w, h } = getFrameCm();
+    const pageKey = document.querySelector('input[name="page-size"]:checked').value;
+    specLine.textContent = `${w.toFixed(1)}×${h.toFixed(1)}cm → ${pageKey.toUpperCase()} · 300dpi`;
+  }
+
   function refresh() {
     layoutStage();
     if (image) {
@@ -100,6 +128,7 @@
       zoomSlider.value = String(scale / minScale);
       clampOffset();
     }
+    updateSpecLine();
     draw();
   }
 
@@ -137,17 +166,31 @@
   frameWidthInput.addEventListener("change", refresh);
   frameHeightInput.addEventListener("change", refresh);
 
+  document.querySelectorAll('input[name="page-size"]').forEach((input) => {
+    input.addEventListener("change", updateSpecLine);
+  });
+
   presetButtons.forEach((btn) => {
     btn.addEventListener("click", () => {
-      frameWidthInput.value = btn.dataset.w;
-      frameHeightInput.value = btn.dataset.h;
+      setFrameCm(parseFloat(btn.dataset.w), parseFloat(btn.dataset.h));
+      refresh();
+    });
+  });
+
+  orientationInputs.forEach((input) => {
+    input.addEventListener("change", () => {
+      const { w, h } = getFrameCm();
+      setFrameCm(w, h);
       refresh();
     });
   });
 
   photoInput.addEventListener("change", (e) => {
     const file = e.target.files && e.target.files[0];
-    if (file) loadImage(file);
+    if (file) {
+      fileDropLabel.textContent = file.name;
+      loadImage(file);
+    }
   });
 
   zoomSlider.addEventListener("input", () => {

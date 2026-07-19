@@ -1,3 +1,5 @@
+/* Photo Frame PDF — uses the shared color tokens from assets/style.css */
+
 body.wide {
   max-width: 1080px;
 }
@@ -7,14 +9,32 @@ body.wide {
   font-size: 0.9rem;
 }
 
+.spec-line {
+  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  font-size: 0.85rem;
+  color: var(--fg);
+  opacity: 0.7;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  padding: 0.45rem 0;
+  margin: 0 0 1rem;
+}
+
+.lede {
+  opacity: 0.8;
+  max-width: 46ch;
+}
+
+/* --- Layout: fluid, not fixed-column-until-a-breakpoint --- */
+
 .tool-layout {
   display: grid;
-  grid-template-columns: 300px 1fr;
-  gap: 2rem;
+  grid-template-columns: minmax(240px, 300px) minmax(0, 1fr);
+  gap: clamp(1.5rem, 4vw, 2.5rem);
   align-items: start;
 }
 
-@media (max-width: 720px) {
+@media (max-width: 760px) {
   .tool-layout {
     grid-template-columns: 1fr;
   }
@@ -24,6 +44,7 @@ body.wide {
   display: flex;
   flex-direction: column;
   gap: 1.5rem;
+  min-width: 0;
 }
 
 .field-group h2 {
@@ -52,6 +73,10 @@ body.wide {
   gap: 0.4rem;
 }
 
+.orientation-row {
+  margin-top: -0.25rem;
+}
+
 input[type="number"] {
   padding: 0.4rem 0.5rem;
   border: 1px solid var(--border);
@@ -59,6 +84,16 @@ input[type="number"] {
   background: transparent;
   color: var(--fg);
   font-size: 0.95rem;
+}
+
+input[type="number"]:focus-visible,
+input[type="radio"]:focus-visible,
+input[type="range"]:focus-visible,
+.file-drop:focus-within,
+.presets button:focus-visible,
+button.primary:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 .presets {
@@ -83,15 +118,38 @@ input[type="number"] {
   color: var(--accent);
 }
 
-input[type="file"] {
-  color: var(--fg);
+.file-drop {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  border: 1px dashed var(--border);
+  border-radius: 6px;
+  padding: 0.85rem 0.75rem;
   font-size: 0.85rem;
+  opacity: 0.8;
+  cursor: pointer;
+}
+
+.file-drop:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  opacity: 1;
+}
+
+.file-drop input[type="file"] {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
 }
 
 .hint {
   font-size: 0.78rem;
   opacity: 0.65;
-  margin: 0.4rem 0;
+  margin: 0.4rem 0 0;
 }
 
 .zoom-label {
@@ -100,6 +158,7 @@ input[type="file"] {
 
 input[type="range"] {
   width: 100%;
+  accent-color: var(--accent);
 }
 
 button.primary {
@@ -124,7 +183,17 @@ button.primary:disabled {
   opacity: 0.8;
 }
 
+/* --- Preview: fluid crop stage --- */
+
 .preview-pane {
+  display: flex;
+  justify-content: center;
+  min-width: 0;
+}
+
+.crop-frame {
+  width: 100%;
+  max-width: 480px;
   display: flex;
   justify-content: center;
 }
@@ -135,7 +204,9 @@ button.primary:disabled {
   border-radius: 8px;
   background: repeating-conic-gradient(#8884 0% 25%, transparent 0% 50%) 50% / 20px 20px;
   overflow: hidden;
+  width: 100%;
   max-width: 100%;
+  max-height: min(70vh, 480px);
   touch-action: none;
   cursor: grab;
 }
@@ -158,4 +229,13 @@ button.primary:disabled {
   opacity: 0.6;
   font-size: 0.9rem;
   pointer-events: none;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .presets button,
+  .file-drop,
+  button.primary,
+  .crop-stage {
+    transition: border-color 0.15s ease, color 0.15s ease, opacity 0.15s ease;
+  }
 }

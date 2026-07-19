@@ -11,7 +11,8 @@
   <header>
     <p class="back-link"><a href="../index.html">&larr; AI Toys</a></p>
     <h1>Photo Frame PDF</h1>
-    <p>Fit a photo to an exact frame size, crop and zoom it, and export a print-ready PDF. Everything runs locally in your browser — nothing is uploaded.</p>
+    <p class="spec-line" id="spec-line">10.0×15.0cm &rarr; A4 &middot; 300dpi</p>
+    <p class="lede">Fit a photo to an exact frame size, crop and zoom it, and export a print-ready PDF. Everything runs locally in your browser — nothing is uploaded.</p>
   </header>
 
   <main class="tool-layout">
@@ -26,6 +27,16 @@
           <label>
             Height (cm)
             <input type="number" id="frame-height" min="1" step="0.1" value="15" />
+          </label>
+        </div>
+        <div class="field-row orientation-row">
+          <label>
+            <input type="radio" name="frame-orientation" value="portrait" checked />
+            Portrait
+          </label>
+          <label>
+            <input type="radio" name="frame-orientation" value="landscape" />
+            Landscape
           </label>
         </div>
         <div class="presets" id="frame-presets">
@@ -53,7 +64,10 @@
 
       <div class="field-group">
         <h2>Photo</h2>
-        <input type="file" id="photo-input" accept="image/*" />
+        <label class="file-drop" for="photo-input">
+          <input type="file" id="photo-input" accept="image/*" />
+          <span id="file-drop-label">Choose a photo&hellip;</span>
+        </label>
         <p class="hint">Drag to move, scroll or pinch to zoom, inside the preview.</p>
         <div class="field-row">
           <label class="zoom-label">
@@ -68,16 +82,14 @@
     </section>
 
     <section class="preview-pane" aria-label="Preview">
-      <div id="crop-stage" class="crop-stage">
-        <p class="placeholder" id="placeholder-msg">Choose a photo to start</p>
-        <canvas id="crop-canvas"></canvas>
+      <div class="crop-frame">
+        <div id="crop-stage" class="crop-stage">
+          <p class="placeholder" id="placeholder-msg">Choose a photo to start</p>
+          <canvas id="crop-canvas"></canvas>
+        </div>
       </div>
     </section>
   </main>
-
-  <footer>
-    <p><a href="https://github.com/JLugagne/ai-toys">Source on GitHub</a></p>
-  </footer>
 
   <script src="vendor/jspdf.umd.min.js"></script>
   <script src="app.js"></script>
