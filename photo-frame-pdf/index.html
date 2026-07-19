@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Photo Frame PDF — AI Toys</title>
+  <link rel="stylesheet" href="../assets/style.css" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body class="wide">
+  <header>
+    <p class="back-link"><a href="../index.html">&larr; AI Toys</a></p>
+    <h1>Photo Frame PDF</h1>
+    <p>Fit a photo to an exact frame size, crop and zoom it, and export a print-ready PDF. Everything runs locally in your browser — nothing is uploaded.</p>
+  </header>
+
+  <main class="tool-layout">
+    <section class="controls" aria-label="Settings">
+      <div class="field-group">
+        <h2>Frame size</h2>
+        <div class="field-row">
+          <label>
+            Width (cm)
+            <input type="number" id="frame-width" min="1" step="0.1" value="10" />
+          </label>
+          <label>
+            Height (cm)
+            <input type="number" id="frame-height" min="1" step="0.1" value="15" />
+          </label>
+        </div>
+        <div class="presets" id="frame-presets">
+          <button type="button" data-w="10" data-h="15">10×15</button>
+          <button type="button" data-w="13" data-h="18">13×18</button>
+          <button type="button" data-w="15" data-h="20">15×20</button>
+          <button type="button" data-w="20" data-h="30">20×30</button>
+          <button type="button" data-w="21" data-h="29.7">A4</button>
+        </div>
+      </div>
+
+      <div class="field-group">
+        <h2>Page size</h2>
+        <div class="field-row">
+          <label>
+            <input type="radio" name="page-size" value="a4" checked />
+            A4 (21 × 29.7 cm)
+          </label>
+          <label>
+            <input type="radio" name="page-size" value="letter" />
+            Letter (21.59 × 27.94 cm)
+          </label>
+        </div>
+      </div>
+
+      <div class="field-group">
+        <h2>Photo</h2>
+        <input type="file" id="photo-input" accept="image/*" />
+        <p class="hint">Drag to move, scroll or pinch to zoom, inside the preview.</p>
+        <div class="field-row">
+          <label class="zoom-label">
+            Zoom
+            <input type="range" id="zoom-slider" min="1" max="4" step="0.01" value="1" disabled />
+          </label>
+        </div>
+      </div>
+
+      <button type="button" id="export-btn" class="primary" disabled>Export PDF</button>
+      <p id="status-msg" class="status-msg" role="status"></p>
+    </section>
+
+    <section class="preview-pane" aria-label="Preview">
+      <div id="crop-stage" class="crop-stage">
+        <p class="placeholder" id="placeholder-msg">Choose a photo to start</p>
+        <canvas id="crop-canvas"></canvas>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <p><a href="https://github.com/JLugagne/ai-toys">Source on GitHub</a></p>
+  </footer>
+
+  <script src="vendor/jspdf.umd.min.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
