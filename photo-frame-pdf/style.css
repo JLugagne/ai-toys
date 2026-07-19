@@ -211,6 +211,19 @@ button.primary:disabled {
   cursor: grab;
 }
 
+.crop-stage.empty {
+  cursor: pointer;
+}
+
+.crop-stage.empty:hover {
+  border-color: var(--accent);
+}
+
+.crop-stage.empty:hover .placeholder {
+  color: var(--accent);
+  opacity: 1;
+}
+
 .crop-stage.dragging {
   cursor: grabbing;
 }

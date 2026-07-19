@@ -8,6 +8,7 @@
 
   const frameWidthInput = document.getElementById("frame-width");
   const frameHeightInput = document.getElementById("frame-height");
+  const bleedMarginInput = document.getElementById("bleed-margin");
   const orientationInputs = document.querySelectorAll('input[name="frame-orientation"]');
   const presetButtons = document.querySelectorAll("#frame-presets button");
   const photoInput = document.getElementById("photo-input");
@@ -32,6 +33,11 @@
     const w = Math.max(1, parseFloat(frameWidthInput.value) || 1);
     const h = Math.max(1, parseFloat(frameHeightInput.value) || 1);
     return { w, h };
+  }
+
+  function getBleedCm() {
+    const mm = Math.max(0, parseFloat(bleedMarginInput.value) || 0);
+    return mm / 10;
   }
 
   function getOrientation() {
@@ -79,10 +85,22 @@
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   }
 
+  function getBleedPreviewSize() {
+    // The photo must cover not just the visible frame but the frame plus the
+    // bleed margin on every side (the extra bit that gets printed and trimmed
+    // away), so express that target in the same preview px space.
+    const { pxW, pxH } = getPreviewSize();
+    const { w: frameW, h: frameH } = getFrameCm();
+    const bleed = getBleedCm();
+    return {
+      pxW: pxW * ((frameW + 2 * bleed) / frameW),
+      pxH: pxH * ((frameH + 2 * bleed) / frameH),
+    };
+  }
+
   function computeMinScale() {
     if (!image) return 1;
-    const { pxW, pxH } = getPreviewSize();
-    // scale so the image covers the whole frame (cover fit)
+    const { pxW, pxH } = getBleedPreviewSize();
     const scaleX = pxW / image.naturalWidth;
     const scaleY = pxH / image.naturalHeight;
     return Math.max(scaleX, scaleY);
@@ -90,7 +108,7 @@
 
   function clampOffset() {
     if (!image) return;
-    const { pxW, pxH } = getPreviewSize();
+    const { pxW, pxH } = getBleedPreviewSize();
     const drawW = image.naturalWidth * scale;
     const drawH = image.naturalHeight * scale;
     const maxOffsetX = Math.max(0, (drawW - pxW) / 2);
@@ -146,6 +164,7 @@
         zoomSlider.value = "1";
         exportBtn.disabled = false;
         placeholderMsg.style.display = "none";
+        cropStage.classList.remove("empty");
         refresh();
       };
       img.onerror = () => {
@@ -165,6 +184,7 @@
 
   frameWidthInput.addEventListener("change", refresh);
   frameHeightInput.addEventListener("change", refresh);
+  bleedMarginInput.addEventListener("change", refresh);
 
   document.querySelectorAll('input[name="page-size"]').forEach((input) => {
     input.addEventListener("change", updateSpecLine);
@@ -191,6 +211,10 @@
       fileDropLabel.textContent = file.name;
       loadImage(file);
     }
+  });
+
+  cropStage.addEventListener("click", () => {
+    if (!image) photoInput.click();
   });
 
   zoomSlider.addEventListener("input", () => {
@@ -280,22 +304,29 @@
       setStatus("Generating PDF...");
 
       const { w: frameW, h: frameH } = getFrameCm();
+      const bleed = getBleedCm();
       const pageKey = document.querySelector('input[name="page-size"]:checked').value;
       const page = PAGE_SIZES_CM[pageKey];
 
-      if (frameW > page.w || frameH > page.h) {
+      // Render the cropped photo at high resolution (300 DPI) for print quality,
+      // extended by the safety margin (bleed) on every side so a small trimming
+      // offset when printing/cutting never exposes a white line inside the frame.
+      const bleedW = frameW + 2 * bleed;
+      const bleedH = frameH + 2 * bleed;
+
+      if (bleedW > page.w || bleedH > page.h) {
+        const reason = frameW <= page.w && frameH <= page.h ? " (the safety margin pushes it over)" : "";
         setStatus(
-          `Frame (${frameW}×${frameH}cm) does not fit on ${pageKey.toUpperCase()} (${page.w}×${page.h}cm). Choose a bigger page or a smaller frame.`,
+          `Frame + safety margin (${bleedW.toFixed(1)}×${bleedH.toFixed(1)}cm) does not fit on ${pageKey.toUpperCase()} (${page.w}×${page.h}cm)${reason}. Choose a bigger page, a smaller frame, or reduce the safety margin.`,
           true
         );
         exportBtn.disabled = false;
         return;
       }
 
-      // Render the cropped photo at high resolution (300 DPI) for print quality.
       const dpi = 300;
-      const outW = Math.round((frameW / 2.54) * dpi);
-      const outH = Math.round((frameH / 2.54) * dpi);
+      const outW = Math.round((bleedW / 2.54) * dpi);
+      const outH = Math.round((bleedH / 2.54) * dpi);
 
       // Convert the preview-space crop (scale + offset, in preview px) into
       // frame-cm space first, then into output px using per-axis ratios derived
@@ -309,8 +340,8 @@
 
       const { pxW: prevW } = getPreviewSize();
       const pxPerCmPreview = prevW / frameW;
-      const pxPerCmOutputW = outW / frameW;
-      const pxPerCmOutputH = outH / frameH;
+      const pxPerCmOutputW = outW / bleedW;
+      const pxPerCmOutputH = outH / bleedH;
 
       const drawWCm = (image.naturalWidth * scale) / pxPerCmPreview;
       const drawHCm = (image.naturalHeight * scale) / pxPerCmPreview;
@@ -334,10 +365,10 @@
         format: [page.w, page.h],
       });
 
-      const offsetXCm = (page.w - frameW) / 2;
-      const offsetYCm = (page.h - frameH) / 2;
+      const offsetXCm = (page.w - frameW) / 2 - bleed;
+      const offsetYCm = (page.h - frameH) / 2 - bleed;
 
-      doc.addImage(imgData, "JPEG", offsetXCm, offsetYCm, frameW, frameH);
+      doc.addImage(imgData, "JPEG", offsetXCm, offsetYCm, bleedW, bleedH);
       doc.save("photo-frame.pdf");
 
       setStatus("PDF downloaded.");

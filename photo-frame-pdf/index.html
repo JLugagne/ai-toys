@@ -43,9 +43,15 @@
           <button type="button" data-w="10" data-h="15">10×15</button>
           <button type="button" data-w="13" data-h="18">13×18</button>
           <button type="button" data-w="15" data-h="20">15×20</button>
-          <button type="button" data-w="20" data-h="30">20×30</button>
           <button type="button" data-w="21" data-h="29.7">A4</button>
         </div>
+        <div class="field-row">
+          <label>
+            Safety margin (mm)
+            <input type="number" id="bleed-margin" min="0" step="0.5" value="2" />
+          </label>
+        </div>
+        <p class="hint">The photo is printed slightly larger than the frame on each side, so a small trimming offset never leaves a white line at the edge.</p>
       </div>
 
       <div class="field-group">
@@ -83,7 +89,7 @@
 
     <section class="preview-pane" aria-label="Preview">
       <div class="crop-frame">
-        <div id="crop-stage" class="crop-stage">
+        <div id="crop-stage" class="crop-stage empty">
           <p class="placeholder" id="placeholder-msg">Choose a photo to start</p>
           <canvas id="crop-canvas"></canvas>
         </div>
