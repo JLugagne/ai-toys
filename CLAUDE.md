@@ -54,7 +54,7 @@ Rules:
 
 Tools must be genuinely responsive, not just stack at one breakpoint:
 
-- Never hardcode a fixed pixel size for a layout element (e.g. a canvas preview) in JS or CSS. Compute sizes from the actual container's `clientWidth`/viewport at runtime (see `photo-frame-pdf/app.js`'s `getPreviewSize()` for the pattern: read the wrapper's live width, derive height from content aspect ratio, clamp against viewport height).
+- Never hardcode a fixed pixel size for a layout element (e.g. a canvas preview) in JS or CSS. Compute sizes from the actual container's `clientWidth`/viewport at runtime (see `photo-frame-pdf/app.js`'s `renderPagesPreview()` for the pattern: read the wrapper's live width, derive a px-per-cm scale from it, clamp against a sane max).
 - Use fluid units (`clamp()`, `%`, `minmax()` in grid tracks) over fixed breakpoints where possible.
 - Test by resizing the browser window down to mobile widths, not just by reading the CSS.
 
