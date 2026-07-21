@@ -2,13 +2,14 @@
 
 A collection of small, single-usage static tools hosted on GitHub Pages (https://jlugagne.github.io/ai-toys/). No backend, no build step — plain HTML/CSS/JS, deployed via the GitHub Actions workflow in `.github/workflows/pages.yml` on every push to `main`.
 
-## Standalone, no-server requirement (non-negotiable)
+## Standalone, no-backend requirement (non-negotiable)
 
-Every tool in this repo must be **fully standalone and client-side**, with **zero server component**:
+Every tool in this repo must be **fully client-side**, with **no backend we own or operate**:
 
-- No backend, no API calls, no server-side processing of any kind — not even a tiny one. If a tool's idea requires a server (auth, a database, sending email, anything that can't run entirely in the visitor's browser), it does not belong in this repo as currently scoped; flag that to the user instead of building a server piece.
-- No CDN dependencies, no external fonts, no analytics/tracking scripts, no calls to third-party APIs. If a tool needs a library, vendor it locally into that tool's own folder (see `photo-frame-pdf/vendor/jspdf.umd.min.js` for the pattern) and check for the latest version before vendoring.
-- A user should be able to save a tool's folder locally and open `index.html` directly (or serve it from any static file server) with full functionality — no build step, no network access required after the page loads.
+- No backend, no server-side processing of any kind — not even a tiny one. If a tool's idea requires a server we run (auth, a database we host, sending email), it does not belong in this repo as currently scoped; flag that to the user instead of building a server piece.
+- **Calling public third-party APIs directly from the browser is allowed** (e.g. the French Ministry of Education open-data API used by `calendar-pdf`). Prefer read-only, keyless, CORS-enabled public APIs. When a tool relies on a remote API, it must **degrade gracefully offline** — ship an embedded fallback/snapshot where practical (see `calendar-pdf`'s `EMBEDDED` snapshot) so the core still works without network access. Never require a build step.
+- No CDN dependencies, no external fonts, no analytics/tracking scripts. If a tool needs a library, vendor it locally into that tool's own folder (see `photo-frame-pdf/vendor/jspdf.umd.min.js` for the pattern) and check for the latest version before vendoring.
+- A user should be able to save a tool's folder locally and open `index.html` directly (or serve it from any static file server). Features that don't depend on a remote API must keep working with no network access after the page loads.
 - This applies to every new tool added to the repo, not just the ones that mention it explicitly in their own copy.
 
 ## Adding a new tool

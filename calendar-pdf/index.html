@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Blank Calendar PDF — AI Toys</title>
+  <link rel="stylesheet" href="../assets/style.css" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body class="wide">
+  <header>
+    <div class="header-top">
+      <p class="back-link"><a href="../index.html">&larr; AI Toys</a></p>
+      <div class="lang-toggle" role="radiogroup" aria-label="Language">
+        <button type="button" data-lang="en" class="lang-btn">EN</button>
+        <button type="button" data-lang="fr" class="lang-btn">FR</button>
+      </div>
+    </div>
+    <h1 data-i18n="app_title">Blank Calendar PDF</h1>
+    <p class="spec-line" id="spec-line"></p>
+    <p class="lede" data-i18n="lede">Generate a print-ready blank calendar as a PDF. Pick a monthly or weekly layout, choose where the week starts, a print-friendly color scheme, and optionally overlay French public holidays and school-holiday zones (A / B / C).</p>
+  </header>
+
+  <main class="tool-layout">
+    <section class="controls" aria-label="Settings">
+      <div class="field-group">
+        <h2 data-i18n="h_range">Date range</h2>
+        <div class="field-row seg">
+          <label><input type="radio" name="range-mode" value="year" checked /> <span data-i18n="opt_fullyear">Full year</span></label>
+          <label><input type="radio" name="range-mode" value="months" /> <span data-i18n="opt_monthrange">Month range</span></label>
+        </div>
+        <div id="year-fields" class="field-row">
+          <label><span data-i18n="lbl_year">Year</span>
+            <select id="year-select"></select>
+          </label>
+        </div>
+        <div id="months-fields" hidden>
+          <div class="field-row">
+            <label><span data-i18n="lbl_from_month">From (month)</span>
+              <select id="start-month"></select>
+            </label>
+            <label><span data-i18n="lbl_year">Year</span>
+              <select id="start-year"></select>
+            </label>
+          </div>
+          <div class="field-row">
+            <label><span data-i18n="lbl_to_month">To (month)</span>
+              <select id="end-month"></select>
+            </label>
+            <label><span data-i18n="lbl_year">Year</span>
+              <select id="end-year"></select>
+            </label>
+          </div>
+        </div>
+      </div>
+
+      <div class="field-group">
+        <h2 data-i18n="h_layout">Layout</h2>
+        <div class="field-row seg">
+          <label><input type="radio" name="layout" value="month" checked /> <span data-i18n="opt_monthly">Monthly (grid)</span></label>
+          <label><input type="radio" name="layout" value="week" /> <span data-i18n="opt_weekly">Weekly (planner)</span></label>
+        </div>
+        <div class="field-row seg">
+          <span class="seg-label" data-i18n="lbl_weekstart">Week starts on</span>
+          <label><input type="radio" name="week-start" value="1" checked /> <span data-i18n="opt_monday">Monday</span></label>
+          <label><input type="radio" name="week-start" value="0" /> <span data-i18n="opt_sunday">Sunday</span></label>
+        </div>
+      </div>
+
+      <div class="field-group">
+        <h2 data-i18n="h_colors">Color scheme</h2>
+        <div id="theme-swatches" class="theme-swatches" role="radiogroup" aria-label="Color scheme"></div>
+      </div>
+
+      <div class="field-group">
+        <h2 data-i18n="h_page">Page</h2>
+        <div class="field-row">
+          <label><span data-i18n="lbl_size">Size</span>
+            <select id="page-size">
+              <option value="a4" selected>A4 (21 × 29.7 cm)</option>
+              <option value="letter">Letter (21.6 × 27.9 cm)</option>
+            </select>
+          </label>
+        </div>
+        <div class="orientation-row" role="group" aria-label="Page orientation">
+          <label class="orientation-option">
+            <input type="radio" name="orientation" value="portrait" />
+            <svg class="orientation-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="3" width="12" height="18" rx="1.5" /></svg>
+          </label>
+          <label class="orientation-option">
+            <input type="radio" name="orientation" value="landscape" checked />
+            <svg class="orientation-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="6" width="18" height="12" rx="1.5" /></svg>
+          </label>
+        </div>
+      </div>
+
+      <div class="field-group">
+        <h2 data-i18n="h_holidays">Holidays</h2>
+        <label class="check-line">
+          <input type="checkbox" id="include-holidays" checked />
+          <span data-i18n="chk_publicholidays">Include French public holidays</span>
+        </label>
+        <label class="check-line">
+          <input type="checkbox" id="show-legend" checked />
+          <span data-i18n="chk_legend">Show legend (monthly layout)</span>
+        </label>
+
+        <p class="sub-label" data-i18n="lbl_zones">French school-holiday zones</p>
+        <div class="field-row seg zones-row">
+          <label><input type="checkbox" class="zone-toggle" value="A" /> Zone A</label>
+          <label><input type="checkbox" class="zone-toggle" value="B" /> Zone B</label>
+          <label><input type="checkbox" class="zone-toggle" value="C" /> Zone C</label>
+        </div>
+        <p id="zones-status" class="status-msg" role="status"></p>
+
+        <ul id="period-list" class="period-list"></ul>
+
+        <details class="add-period">
+          <summary data-i18n="sum_addperiod">+ Add a custom period</summary>
+          <div class="add-period-body">
+            <label><span data-i18n="lbl_name">Name</span>
+              <input type="text" id="custom-label" data-i18n-ph="ph_name" placeholder="e.g. Trip" maxlength="40" />
+            </label>
+            <div class="field-row">
+              <label><span data-i18n="lbl_start">Start</span>
+                <input type="date" id="custom-start" />
+              </label>
+              <label><span data-i18n="lbl_end">End</span>
+                <input type="date" id="custom-end" />
+              </label>
+            </div>
+            <button type="button" id="add-period-btn" class="secondary" data-i18n="btn_addperiod">Add period</button>
+          </div>
+        </details>
+      </div>
+
+      <button type="button" id="export-btn" class="primary" data-i18n="btn_export">Export PDF</button>
+      <p id="status-msg" class="status-msg" role="status"></p>
+    </section>
+
+    <section class="preview-pane" aria-label="Calendar preview">
+      <div id="pages-preview" class="pages-preview"></div>
+      <p id="preview-note" class="preview-note"></p>
+    </section>
+  </main>
+
+  <template id="period-item-template">
+    <li class="period-item">
+      <span class="period-swatch" aria-hidden="true"></span>
+      <span class="period-text"></span>
+      <button type="button" class="remove-period-btn" aria-label="Remove" title="Remove">&times;</button>
+    </li>
+  </template>
+
+  <script src="vendor/jspdf.umd.min.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
