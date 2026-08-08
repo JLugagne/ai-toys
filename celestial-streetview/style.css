@@ -1,0 +1,400 @@
+/* Celestial Bodies in Street View — uses the shared color tokens from assets/style.css */
+
+body.wide {
+  max-width: 1180px;
+}
+
+[hidden] {
+  display: none !important;
+}
+
+.back-link {
+  margin: 0 0 0.5rem;
+  font-size: 0.9rem;
+}
+
+.spec-line {
+  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  font-size: 0.85rem;
+  color: var(--fg);
+  opacity: 0.7;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  padding: 0.45rem 0;
+  margin: 0 0 1rem;
+}
+
+.lede {
+  opacity: 0.8;
+  max-width: 62ch;
+}
+
+/* --- Layout --- */
+
+.tool-layout {
+  display: grid;
+  grid-template-columns: minmax(280px, 340px) minmax(0, 1fr);
+  gap: clamp(1.5rem, 4vw, 2.5rem);
+  align-items: start;
+}
+
+@media (max-width: 860px) {
+  .tool-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .preview-pane {
+    order: -1;
+  }
+}
+
+.controls {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+  min-width: 0;
+}
+
+.field-group h2 {
+  font-size: 1rem;
+  margin: 0 0 0.6rem;
+}
+
+.field-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: end;
+}
+
+.field-row label,
+label.stacked {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.85rem;
+  flex: 1;
+  min-width: 110px;
+}
+
+label.stacked {
+  margin-top: 0.75rem;
+}
+
+input[type="number"],
+input[type="date"],
+input[type="time"],
+input[type="text"],
+select {
+  padding: 0.4rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--fg);
+  font-size: 0.95rem;
+  width: 100%;
+  font-family: inherit;
+}
+
+select {
+  background: var(--bg);
+}
+
+input:focus-visible,
+select:focus-visible,
+button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.hint {
+  font-size: 0.78rem;
+  opacity: 0.65;
+  margin: 0.4rem 0 0.6rem;
+}
+
+.hint code {
+  font-size: 0.95em;
+}
+
+.presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin-bottom: 0.6rem;
+}
+
+.presets button,
+.chip {
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--fg);
+  border-radius: 6px;
+  padding: 0.3rem 0.6rem;
+  font-size: 0.78rem;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.presets button:hover,
+.chip:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.presets button[aria-pressed="true"] {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.button-row {
+  display: flex;
+  gap: 0.35rem;
+  margin-top: 0.75rem;
+}
+
+.button-row .chip {
+  flex: 1;
+}
+
+button.primary {
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  padding: 0.55rem 0.9rem;
+  font-size: 0.9rem;
+  font-family: inherit;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+button.secondary {
+  background: transparent;
+  color: var(--accent);
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+  padding: 0.55rem 1rem;
+  font-size: 0.88rem;
+  font-family: inherit;
+  cursor: pointer;
+  width: 100%;
+}
+
+button.secondary:hover {
+  border-color: var(--accent);
+}
+
+.status-msg {
+  font-size: 0.8rem;
+  min-height: 1.2em;
+  opacity: 0.8;
+  margin: 0.5rem 0 0;
+}
+
+.check-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  margin-bottom: 0.9rem;
+}
+
+.check-line {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-size: 0.85rem;
+}
+
+/* --- Readouts --- */
+
+.readouts {
+  border-top: 1px solid var(--border);
+  padding-top: 1rem;
+}
+
+.readout {
+  margin: 0 0 0.9rem;
+}
+
+.readout-title {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.readout dd {
+  margin: 0.2rem 0 0 1.15rem;
+  font-size: 0.85rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.readout dd.muted {
+  opacity: 0.7;
+  font-size: 0.8rem;
+}
+
+.swatch {
+  width: 0.7rem;
+  height: 0.7rem;
+  border-radius: 50%;
+  flex: 0 0 auto;
+}
+
+.swatch.sun {
+  background: #f2b632;
+}
+
+.swatch.moon {
+  background: #cfd8e8;
+}
+
+/* --- Sky / panorama view --- */
+
+.preview-pane {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  min-width: 0;
+  width: 100%;
+}
+
+.view-wrap {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  max-height: min(70vh, 620px);
+  min-height: 240px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+  background: #10131b;
+}
+
+.pano,
+.overlay {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.overlay {
+  display: block;
+  touch-action: none;
+  cursor: grab;
+}
+
+.view-wrap.street .overlay {
+  pointer-events: none;
+  cursor: default;
+}
+
+.overlay.dragging {
+  cursor: grabbing;
+}
+
+.view-note {
+  position: absolute;
+  left: 0.6rem;
+  bottom: 0.5rem;
+  margin: 0;
+  max-width: calc(100% - 1.2rem);
+  padding: 0.25rem 0.5rem;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  font-size: 0.75rem;
+  pointer-events: none;
+}
+
+/* --- Time scrubber --- */
+
+.scrub {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.scrub-label {
+  font-size: 0.8rem;
+  opacity: 0.75;
+}
+
+.scrub input[type="range"] {
+  width: 100%;
+  accent-color: var(--accent);
+}
+
+.scrub-ticks {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.7rem;
+  opacity: 0.55;
+  font-variant-numeric: tabular-nums;
+}
+
+/* --- API key dialog --- */
+
+.key-dialog {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg);
+  color: var(--fg);
+  padding: clamp(1rem, 3vw, 1.75rem);
+  max-width: 40rem;
+  width: calc(100vw - 2rem);
+}
+
+.key-dialog::backdrop {
+  background: rgba(0, 0, 0, 0.5);
+}
+
+.key-dialog h2 {
+  margin: 0 0 0.75rem;
+  font-size: 1.15rem;
+}
+
+.key-dialog p {
+  font-size: 0.88rem;
+  margin: 0 0 0.75rem;
+}
+
+.key-dialog .steps {
+  font-size: 0.88rem;
+  padding-left: 1.2rem;
+  margin: 0 0 0.9rem;
+}
+
+.key-dialog .steps li {
+  margin-bottom: 0.35rem;
+}
+
+.key-dialog .privacy {
+  border-left: 2px solid var(--border);
+  padding-left: 0.7rem;
+  opacity: 0.85;
+}
+
+.dialog-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 1rem;
+}
+
+.dialog-actions .spacer {
+  flex: 1;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .presets button,
+  .chip,
+  button.primary,
+  button.secondary {
+    transition: border-color 0.15s ease, color 0.15s ease;
+  }
+}
