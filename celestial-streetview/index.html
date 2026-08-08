@@ -2,97 +2,101 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <title>Celestial Bodies in Street View — AI Toys</title>
   <link rel="stylesheet" href="../assets/style.css" />
   <link rel="stylesheet" href="style.css" />
 </head>
-<body class="wide">
-  <header>
-    <p class="back-link"><a href="../index.html">&larr; AI Toys</a></p>
-    <h1>Celestial Bodies in Street View</h1>
-    <p class="spec-line" id="spec-line"></p>
-    <p class="lede">Put the sky of any place, date and time onto a real Google Street View panorama — so far the Sun and the Moon. Everything below the horizon stays hidden: if a body is on the other side of the planet, nothing is drawn.</p>
-  </header>
+<body class="hud">
+  <div class="view-wrap" id="view-wrap">
+    <div id="pano" class="pano" hidden></div>
+    <canvas id="overlay" class="overlay"></canvas>
+  </div>
 
-  <main class="tool-layout">
-    <section class="controls" aria-label="Settings">
-      <div class="field-group">
-        <h2>Location</h2>
-        <div class="field-row">
-          <label><span>Latitude</span>
-            <input type="number" id="lat" step="0.000001" min="-90" max="90" value="48.858370" />
-          </label>
-          <label><span>Longitude</span>
-            <input type="number" id="lon" step="0.000001" min="-180" max="180" value="2.294481" />
-          </label>
-        </div>
-        <p class="hint">Tip: paste a Google Maps link or <code>lat, lng</code> into either field.</p>
-        <div class="presets" id="presets"></div>
-        <button type="button" class="secondary" id="geolocate-btn">Use my location</button>
+  <div class="hud-layer">
+    <header class="hud-header">
+      <div class="hud-ident">
+        <a class="back-link" href="../index.html" title="Back to AI Toys">&larr;</a>
+        <h1>Celestial Bodies</h1>
+        <span class="hud-sub">street view overlay</span>
       </div>
+      <p class="spec-line" id="spec-line"></p>
+      <button type="button" class="chip" id="panels-toggle" aria-expanded="true">Panels</button>
+    </header>
 
-      <div class="field-group">
-        <h2>Date &amp; time</h2>
-        <div class="field-row">
-          <label><span>Date</span>
-            <input type="date" id="date" />
-          </label>
-          <label><span>Time</span>
-            <input type="time" id="time" />
-          </label>
-        </div>
-        <label class="stacked"><span>Local UTC offset at that place</span>
-          <select id="tz"></select>
+    <section class="hud-panel panel-left" aria-label="Location">
+      <h2>&#9656; Site</h2>
+
+      <div class="search-row">
+        <input type="text" id="search-input" autocomplete="off" spellcheck="false" placeholder="Address, place or lat, lng" aria-label="Address or place" />
+        <button type="button" class="chip" id="search-btn">Find</button>
+      </div>
+      <ul class="search-results" id="search-results" hidden></ul>
+      <p class="status-msg" id="search-status"></p>
+
+      <div class="field-row">
+        <label><span>Lat</span>
+          <input type="number" id="lat" step="0.000001" min="-90" max="90" value="48.858370" />
         </label>
-        <div class="button-row">
-          <button type="button" class="chip" id="prev-day">&minus;1 day</button>
-          <button type="button" class="chip" id="now-btn">Now</button>
-          <button type="button" class="chip" id="next-day">+1 day</button>
-        </div>
+        <label><span>Lon</span>
+          <input type="number" id="lon" step="0.000001" min="-180" max="180" value="2.294481" />
+        </label>
       </div>
 
-      <div class="field-group">
-        <h2>View</h2>
-        <div class="check-list">
-          <label class="check-line"><input type="checkbox" id="show-paths" checked /> <span>Show the day&rsquo;s tracks across the sky</span></label>
-          <label class="check-line"><input type="checkbox" id="show-compass" checked /> <span>Show horizon line and compass</span></label>
-          <label class="check-line"><input type="checkbox" id="show-labels" checked /> <span>Show labels</span></label>
-        </div>
-        <button type="button" class="secondary" id="key-btn">Street View imagery&hellip;</button>
-        <p class="status-msg" id="status-msg"></p>
-      </div>
-
-      <div class="field-group readouts">
-        <h2>Right now</h2>
-        <dl class="readout" id="sun-readout">
-          <dt class="readout-title"><span class="swatch sun"></span> Sun</dt>
-          <dd id="sun-position">&mdash;</dd>
-          <dd class="muted" id="sun-times">&mdash;</dd>
-        </dl>
-        <dl class="readout" id="moon-readout">
-          <dt class="readout-title"><span class="swatch moon"></span> Moon</dt>
-          <dd id="moon-position">&mdash;</dd>
-          <dd class="muted" id="moon-phase">&mdash;</dd>
-          <dd class="muted" id="moon-times">&mdash;</dd>
-        </dl>
-      </div>
+      <div class="presets" id="presets"></div>
+      <button type="button" class="secondary" id="geolocate-btn">Use my location</button>
     </section>
 
-    <section class="preview-pane" aria-label="Sky view">
-      <div class="view-wrap" id="view-wrap">
-        <div id="pano" class="pano" hidden></div>
-        <canvas id="overlay" class="overlay"></canvas>
-        <p class="view-note" id="view-note">Sky view &mdash; drag to look around, scroll to zoom.</p>
+    <section class="hud-panel panel-right" aria-label="Time and view">
+      <h2>&#9656; Epoch</h2>
+      <div class="field-row">
+        <label><span>Date</span>
+          <input type="date" id="date" />
+        </label>
+        <label><span>Time</span>
+          <input type="time" id="time" />
+        </label>
       </div>
+      <label class="stacked"><span>UTC offset on site</span>
+        <select id="tz"></select>
+      </label>
+      <div class="button-row">
+        <button type="button" class="chip" id="prev-day">&minus;1 d</button>
+        <button type="button" class="chip" id="now-btn">Now</button>
+        <button type="button" class="chip" id="next-day">+1 d</button>
+      </div>
+
+      <h2 class="spaced">&#9656; Overlay</h2>
+      <div class="check-list">
+        <label class="check-line"><input type="checkbox" id="show-compass" checked /> <span>Reticle, ladder &amp; bearing tape</span></label>
+        <label class="check-line"><input type="checkbox" id="show-paths" checked /> <span>Daily tracks</span></label>
+        <label class="check-line"><input type="checkbox" id="show-labels" checked /> <span>Target callouts</span></label>
+      </div>
+      <button type="button" class="secondary" id="key-btn">Street View imagery&hellip;</button>
+      <p class="status-msg" id="status-msg"></p>
+    </section>
+
+    <footer class="hud-footer">
+      <dl class="readout" id="sun-readout">
+        <dt class="readout-title"><span class="swatch sun"></span> Sol</dt>
+        <dd id="sun-position">&mdash;</dd>
+        <dd class="muted" id="sun-times">&mdash;</dd>
+      </dl>
 
       <div class="scrub">
-        <label class="scrub-label" for="time-slider">Time of day</label>
-        <input type="range" id="time-slider" min="0" max="1439" step="1" value="720" />
-        <div class="scrub-ticks"><span>00:00</span><span>06:00</span><span>12:00</span><span>18:00</span><span>24:00</span></div>
+        <input type="range" id="time-slider" min="0" max="1439" step="1" value="720" aria-label="Time of day" />
+        <div class="scrub-ticks"><span>00</span><span>06</span><span>12</span><span>18</span><span>24</span></div>
+        <p class="view-note" id="view-note">SKY VIEW &middot; DRAG TO SLEW &middot; SCROLL TO ZOOM</p>
       </div>
-    </section>
-  </main>
+
+      <dl class="readout" id="moon-readout">
+        <dt class="readout-title"><span class="swatch moon"></span> Luna</dt>
+        <dd id="moon-position">&mdash;</dd>
+        <dd class="muted" id="moon-phase">&mdash;</dd>
+        <dd class="muted" id="moon-times">&mdash;</dd>
+      </dl>
+    </footer>
+  </div>
 
   <dialog id="key-dialog" class="key-dialog">
     <form method="dialog">

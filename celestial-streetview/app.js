@@ -8,8 +8,35 @@
   const MAPS_CALLBACK = "celestialMapsReady";
   const PATH_STEP_MIN = 5;
 
-  const SUN_COLOR = "#ffc945";
-  const MOON_COLOR = "#e9eef8";
+  // HUD ink. These are canvas *content* colors drawn over photography, not site
+  // chrome, so they deliberately sit outside the shared light/dark tokens.
+  // readHudTokens() replaces them with the --hud-* custom properties from
+  // style.css, so changing --hud-hue there recolors the canvas too. The
+  // literals below are the fallback when getComputedStyle is unavailable.
+  let HUD_INK = "#7de3ff";
+  let HUD_DIM = "rgba(125,227,255,0.52)";
+  let HUD_FAINT = "rgba(125,227,255,0.16)";
+  let HUD_PANEL = "rgba(4,16,26,0.55)";
+  let SUN_COLOR = "#ffc24a";
+  let MOON_COLOR = "#cfe3ff";
+  const HUD_HALO = "rgba(0,8,16,0.8)";
+  const HUD_MONO = "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
+  // Keeps the canvas chrome clear of the DOM header bar; must match --hud-top.
+  const HUD_TOP = 46;
+  function readHudTokens() {
+    if (typeof getComputedStyle !== "function") return;
+    const style = getComputedStyle(document.body);
+    const pick = (name, fallback) => {
+      const value = style.getPropertyValue(name);
+      return value && value.trim() ? value.trim() : fallback;
+    };
+    HUD_INK = pick("--hud-ink", HUD_INK);
+    HUD_DIM = pick("--hud-ink-dim", HUD_DIM);
+    HUD_FAINT = pick("--hud-faint", HUD_FAINT);
+    HUD_PANEL = pick("--hud-canvas-panel", HUD_PANEL);
+    SUN_COLOR = pick("--hud-sun", SUN_COLOR);
+    MOON_COLOR = pick("--hud-moon", MOON_COLOR);
+  }
 
   const PRESETS = [
     { name: "Eiffel Tower", lat: 48.85837, lon: 2.294481, heading: 250, tz: 120 },
@@ -64,6 +91,11 @@
     keySave: document.getElementById("key-save"),
     keyRemove: document.getElementById("key-remove"),
     keyStatus: document.getElementById("key-status"),
+    searchInput: document.getElementById("search-input"),
+    searchBtn: document.getElementById("search-btn"),
+    searchResults: document.getElementById("search-results"),
+    searchStatus: document.getElementById("search-status"),
+    panelsToggle: document.getElementById("panels-toggle"),
   };
 
   const ctx = el.canvas.getContext("2d");
@@ -230,9 +262,9 @@
     return "rgb(" + c[0] + "," + c[1] + "," + c[2] + ")";
   }
 
-  const SKY_DAY = { top: [58, 110, 190], bottom: [176, 208, 240], ground: [92, 96, 84] };
-  const SKY_DUSK = { top: [40, 58, 102], bottom: [223, 141, 80], ground: [52, 48, 46] };
-  const SKY_NIGHT = { top: [7, 10, 20], bottom: [22, 30, 54], ground: [14, 16, 20] };
+  const SKY_DAY = { top: [26, 68, 132], bottom: [116, 164, 212], ground: [46, 54, 52] };
+  const SKY_DUSK = { top: [20, 30, 62], bottom: [178, 98, 58], ground: [28, 28, 32] };
+  const SKY_NIGHT = { top: [2, 5, 10], bottom: [8, 18, 34], ground: [6, 9, 13] };
 
   function skyPalette(sunAlt) {
     if (sunAlt >= 6) return SKY_DAY;
@@ -263,59 +295,248 @@
     ctx.fillRect(0, 0, w, skyBottom);
     ctx.fillStyle = rgb(pal.ground);
     ctx.fillRect(0, skyBottom, w, h - skyBottom);
+
+    if (skyBottom > 0 && skyBottom < h) {
+      const glow = ctx.createLinearGradient(0, skyBottom - 90, 0, skyBottom);
+      glow.addColorStop(0, "rgba(125,227,255,0)");
+      glow.addColorStop(1, "rgba(125,227,255,0.1)");
+      ctx.fillStyle = glow;
+      ctx.fillRect(0, Math.max(0, skyBottom - 90), w, Math.min(90, skyBottom));
+    }
   }
 
-  function labelStyle(size, weight) {
-    ctx.font = (weight || 500) + " " + size + "px system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif";
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
+  function drawVignette(w, h) {
+    const g = ctx.createRadialGradient(w / 2, h / 2, Math.min(w, h) * 0.35, w / 2, h / 2, Math.max(w, h) * 0.72);
+    g.addColorStop(0, "rgba(0,0,0,0)");
+    g.addColorStop(1, "rgba(0,6,12,0.55)");
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, w, h);
   }
 
-  function outlinedText(text, x, y, color) {
+  function hudFont(size, weight) {
+    ctx.font = (weight || 500) + " " + size + "px " + HUD_MONO;
+  }
+
+  function hudLabel(text, x, y, color, align, baseline) {
+    ctx.textAlign = align || "center";
+    ctx.textBaseline = baseline || "middle";
+    ctx.lineJoin = "round";
     ctx.lineWidth = 3;
-    ctx.strokeStyle = "rgba(0,0,0,0.65)";
+    ctx.strokeStyle = HUD_HALO;
     ctx.strokeText(text, x, y);
     ctx.fillStyle = color;
     ctx.fillText(text, x, y);
   }
 
+  // Lines of constant azimuth and altitude below the horizon: a radar-style
+  // ground plane for the imageless sky view.
+  function drawGroundGrid(cam, w, h) {
+    ctx.save();
+    ctx.strokeStyle = HUD_FAINT;
+    ctx.lineWidth = 1;
+    for (let az = 0; az < 360; az += 15) {
+      ctx.beginPath();
+      let pen = false;
+      for (let alt = -1; alt >= -85; alt -= 4) {
+        const p = project(cam, vecOf(az, alt));
+        if (!p) {
+          pen = false;
+          continue;
+        }
+        if (pen) ctx.lineTo(p.x, p.y);
+        else ctx.moveTo(p.x, p.y);
+        pen = true;
+      }
+      ctx.stroke();
+    }
+    for (const alt of [-5, -12, -25, -45]) {
+      ctx.beginPath();
+      let pen = false;
+      for (let d = -90; d <= 90; d += 3) {
+        const p = project(cam, vecOf(state.heading + d, alt));
+        if (!p) {
+          pen = false;
+          continue;
+        }
+        if (pen) ctx.lineTo(p.x, p.y);
+        else ctx.moveTo(p.x, p.y);
+        pen = true;
+      }
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  // Rungs of constant altitude. They are small circles, not great circles, so
+  // they genuinely curve — sampling in azimuth keeps them honest.
+  function drawPitchLadder(cam, w, h) {
+    const halfFov = clamp(state.fov * 0.62, 10, 88);
+    ctx.save();
+    hudFont(10, 600);
+    for (let alt = -80; alt <= 80; alt += 10) {
+      if (alt === 0 || Math.abs(alt - state.pitch) > halfFov + 20) continue;
+      const pts = [];
+      for (let d = -halfFov; d <= halfFov + 0.01; d += 2.5) {
+        if (Math.abs(d) < 5) {
+          pts.push(null);
+          continue;
+        }
+        const p = project(cam, vecOf(state.heading + d, alt));
+        pts.push(p && p.y > -80 && p.y < h + 80 ? p : null);
+      }
+      ctx.beginPath();
+      let pen = false;
+      let first = null;
+      let last = null;
+      for (const p of pts) {
+        if (!p) {
+          pen = false;
+          continue;
+        }
+        if (pen) ctx.lineTo(p.x, p.y);
+        else ctx.moveTo(p.x, p.y);
+        pen = true;
+        if (!first) first = p;
+        last = p;
+      }
+      ctx.strokeStyle = alt > 0 ? HUD_DIM : HUD_FAINT;
+      ctx.lineWidth = 1;
+      ctx.setLineDash(alt > 0 ? [] : [4, 5]);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      const tag = (alt > 0 ? "+" : "") + alt;
+      if (first && first.x > 34) hudLabel(tag, clamp(first.x - 7, 22, w - 22), first.y, HUD_DIM, "right");
+      if (last && last.x < w - 34) hudLabel(tag, clamp(last.x + 7, 22, w - 22), last.y, HUD_DIM, "left");
+    }
+    ctx.restore();
+  }
+
   function drawHorizon(cam, w, h) {
     const horizonY = cam.cy + cam.f * Math.tan(state.pitch * RAD);
-    if (horizonY > -50 && horizonY < h + 50) {
+    const gap = 30;
+    if (horizonY > -60 && horizonY < h + 60) {
       ctx.save();
-      ctx.strokeStyle = "rgba(255,255,255,0.45)";
-      ctx.lineWidth = 1;
-      ctx.setLineDash([6, 6]);
+      ctx.strokeStyle = HUD_INK;
+      ctx.lineWidth = 1.5;
       ctx.beginPath();
       ctx.moveTo(0, horizonY);
+      ctx.lineTo(w / 2 - gap, horizonY);
+      ctx.moveTo(w / 2 + gap, horizonY);
       ctx.lineTo(w, horizonY);
       ctx.stroke();
-      ctx.restore();
-    }
-    labelStyle(11, 600);
-    for (let az = 0; az < 360; az += 15) {
-      const p = project(cam, vecOf(az, 0));
-      if (!p || p.x < 0 || p.x > w) continue;
-      const cardinal = az % 45 === 0;
-      const y = clamp(p.y, 12, h - 12);
-      ctx.save();
-      ctx.strokeStyle = "rgba(255,255,255,0.5)";
-      ctx.lineWidth = 1;
       ctx.beginPath();
-      ctx.moveTo(p.x, y - (cardinal ? 7 : 4));
-      ctx.lineTo(p.x, y + (cardinal ? 7 : 4));
+      ctx.moveTo(w / 2 - gap, horizonY);
+      ctx.lineTo(w / 2 - gap, horizonY + 7);
+      ctx.moveTo(w / 2 + gap, horizonY);
+      ctx.lineTo(w / 2 + gap, horizonY + 7);
       ctx.stroke();
       ctx.restore();
-      if (cardinal) outlinedText(compassName(az), p.x, y + 18, "#ffffff");
+    }
+    hudFont(11, 700);
+    for (let az = 0; az < 360; az += 45) {
+      const p = project(cam, vecOf(az, 0));
+      if (!p || p.x < 14 || p.x > w - 14) continue;
+      const y = clamp(p.y, 16, h - 26);
+      ctx.save();
+      ctx.strokeStyle = HUD_INK;
+      ctx.lineWidth = 1.25;
+      ctx.beginPath();
+      ctx.moveTo(p.x, y - 6);
+      ctx.lineTo(p.x, y + 6);
+      ctx.stroke();
+      ctx.restore();
+      hudLabel(compassName(az), p.x, y + 18, HUD_INK, "center");
     }
   }
+
+  function drawBearingTape(cam, w, h) {
+    const band = HUD_TOP + 44;
+    const tickBase = HUD_TOP + 38;
+    const span = Math.min(80, Math.max(state.fov * 0.75, 20));
+    ctx.save();
+    ctx.fillStyle = HUD_PANEL;
+    ctx.fillRect(0, HUD_TOP, w, 44);
+    ctx.strokeStyle = HUD_FAINT;
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(0, band + 0.5);
+    ctx.lineTo(w, band + 0.5);
+    ctx.stroke();
+
+    hudFont(9, 600);
+    const start = Math.floor((state.heading - span) / 5) * 5;
+    for (let az = start; az <= state.heading + span; az += 5) {
+      const d = Astro.norm180(az - state.heading);
+      if (Math.abs(d) > span) continue;
+      const x = w / 2 + cam.f * Math.tan(d * RAD);
+      if (x < 10 || x > w - 10) continue;
+      const whole = Astro.norm360(az);
+      const cardinal = whole % 45 === 0;
+      const major = whole % 15 === 0;
+      ctx.beginPath();
+      ctx.strokeStyle = cardinal ? HUD_INK : HUD_DIM;
+      ctx.lineWidth = cardinal ? 1.5 : 1;
+      ctx.moveTo(x, tickBase);
+      ctx.lineTo(x, tickBase - (cardinal ? 11 : major ? 8 : 5));
+      ctx.stroke();
+      if (cardinal) hudLabel(compassName(whole), x, HUD_TOP + 18, HUD_INK, "center");
+      else if (major) hudLabel(String(Math.round(whole)), x, HUD_TOP + 18, HUD_DIM, "center");
+    }
+
+    ctx.beginPath();
+    ctx.moveTo(w / 2, tickBase + 5);
+    ctx.lineTo(w / 2 - 5, tickBase + 13);
+    ctx.lineTo(w / 2 + 5, tickBase + 13);
+    ctx.closePath();
+    ctx.fillStyle = HUD_INK;
+    ctx.fill();
+    ctx.restore();
+  }
+
+  function drawReticle(w, h) {
+    const cx = w / 2;
+    const cy = h / 2;
+    ctx.save();
+    ctx.strokeStyle = HUD_INK;
+    ctx.lineWidth = 1.25;
+    ctx.beginPath();
+    ctx.arc(cx, cy, 7, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.beginPath();
+    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      ctx.moveTo(cx + dx * 12, cy + dy * 12);
+      ctx.lineTo(cx + dx * 21, cy + dy * 21);
+    }
+    ctx.stroke();
+    ctx.fillStyle = HUD_INK;
+    ctx.fillRect(cx - 1, cy - 1, 2, 2);
+    ctx.restore();
+  }
+
+  function drawFrame(w, h) {
+    const arm = Math.min(34, w * 0.07);
+    const m = 9;
+    const t = HUD_TOP + 52;
+    ctx.save();
+    ctx.strokeStyle = HUD_DIM;
+    ctx.lineWidth = 1.5;
+    for (const [x, y, sx, sy] of [[m, t, 1, 1], [w - m, t, -1, 1], [m, h - m, 1, -1], [w - m, h - m, -1, -1]]) {
+      ctx.beginPath();
+      ctx.moveTo(x + sx * arm, y);
+      ctx.lineTo(x, y);
+      ctx.lineTo(x, y + sy * arm);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
 
   function drawPath(cam, samples, color, w, h) {
     ctx.save();
     ctx.strokeStyle = color;
-    ctx.lineWidth = 2;
-    ctx.globalAlpha = 0.75;
-    ctx.setLineDash(color === MOON_COLOR ? [5, 5] : []);
+    ctx.lineWidth = 1.5;
+    ctx.globalAlpha = 0.8;
+    ctx.setLineDash(color === MOON_COLOR ? [3, 5] : [9, 4]);
     ctx.beginPath();
     let pen = false;
     for (const s of samples) {
@@ -332,17 +553,16 @@
     ctx.setLineDash([]);
 
     ctx.globalAlpha = 1;
-    labelStyle(10, 500);
+    hudFont(9, 600);
     for (const s of samples) {
       if (!s.up || s.minute % 60 !== 0 || s.minute === 1440) continue;
       const p = project(cam, vecOf(s.az, s.alt));
       if (!p || p.x < 0 || p.x > w || p.y < 0 || p.y > h) continue;
-      ctx.beginPath();
-      ctx.arc(p.x, p.y, 2.5, 0, Math.PI * 2);
+      const major = s.minute % 180 === 0;
       ctx.fillStyle = color;
-      ctx.fill();
-      if (state.showLabels && s.minute % 180 === 0) {
-        outlinedText(pad(s.minute / 60) + "h", p.x, p.y - 12, color);
+      ctx.fillRect(p.x - (major ? 2.5 : 1.5), p.y - (major ? 2.5 : 1.5), major ? 5 : 3, major ? 5 : 3);
+      if (state.showLabels && major) {
+        hudLabel(pad(s.minute / 60) + "00", p.x, p.y - 12, color, "center");
       }
     }
     ctx.restore();
@@ -350,9 +570,9 @@
 
   function drawSunDisc(x, y, r) {
     const glow = ctx.createRadialGradient(x, y, r * 0.6, x, y, r * 6);
-    glow.addColorStop(0, "rgba(255,201,69,0.55)");
-    glow.addColorStop(0.35, "rgba(255,180,60,0.18)");
-    glow.addColorStop(1, "rgba(255,180,60,0)");
+    glow.addColorStop(0, "rgba(255,194,74,0.5)");
+    glow.addColorStop(0.35, "rgba(255,170,60,0.16)");
+    glow.addColorStop(1, "rgba(255,170,60,0)");
     ctx.fillStyle = glow;
     ctx.beginPath();
     ctx.arc(x, y, r * 6, 0, Math.PI * 2);
@@ -362,9 +582,49 @@
     ctx.arc(x, y, r, 0, Math.PI * 2);
     ctx.fillStyle = "#fff3cf";
     ctx.fill();
-    ctx.lineWidth = 2;
+    ctx.lineWidth = 1.5;
     ctx.strokeStyle = SUN_COLOR;
     ctx.stroke();
+  }
+
+  function drawTargetBracket(x, y, size, color) {
+    const arm = size * 0.42;
+    ctx.save();
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 1.5;
+    for (const [sx, sy] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {
+      ctx.beginPath();
+      ctx.moveTo(x + sx * size - sx * arm, y + sy * size);
+      ctx.lineTo(x + sx * size, y + sy * size);
+      ctx.lineTo(x + sx * size, y + sy * size - sy * arm);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  function drawCallout(x, y, size, title, detail, color, w, h) {
+    const flip = x > w - 150;
+    const dir = flip ? -1 : 1;
+    const lx = x + dir * (size + 6);
+    const ly = y - size - 6;
+    const tx = lx + dir * 20;
+    const ty = ly - 12;
+
+    ctx.save();
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(x + dir * size * 0.72, y - size * 0.72);
+    ctx.lineTo(lx, ly);
+    ctx.lineTo(tx, ty);
+    ctx.stroke();
+    ctx.restore();
+
+    const anchor = flip ? "right" : "left";
+    hudFont(11, 700);
+    hudLabel(title, tx + dir * 4, ty - 7, color, anchor);
+    hudFont(9, 500);
+    hudLabel(detail, tx + dir * 4, ty + 6, color, anchor);
   }
 
   function drawMoonDisc(x, y, r, illum, angle) {
@@ -414,27 +674,33 @@
     const y = cy + dy * t;
 
     ctx.save();
-    ctx.globalAlpha = 0.85;
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 1.25;
     ctx.beginPath();
-    ctx.arc(x, y, 6, 0, Math.PI * 2);
-    ctx.fillStyle = color;
-    ctx.fill();
+    ctx.arc(x, y, 7, 0, Math.PI * 2);
+    ctx.stroke();
 
     ctx.translate(x, y);
     ctx.rotate(Math.atan2(dy, dx));
     ctx.beginPath();
-    ctx.moveTo(9, 0);
-    ctx.lineTo(2, -5);
-    ctx.lineTo(2, 5);
+    ctx.moveTo(15, 0);
+    ctx.lineTo(7, -5);
+    ctx.lineTo(7, 5);
     ctx.closePath();
     ctx.fillStyle = color;
     ctx.fill();
     ctx.restore();
 
     if (state.showLabels) {
-      labelStyle(11, 600);
+      hudFont(9, 700);
       const off = Math.round(Math.hypot(dh, dv));
-      outlinedText(label + " " + off + "° away", clamp(x, 60, w - 60), clamp(y + (dy > 0 ? -16 : 18), 14, h - 14), color);
+      hudLabel(
+        label.toUpperCase() + " " + off + "° OFF-AXIS",
+        clamp(x, 72, w - 72),
+        clamp(y + (dy > 0 ? -18 : 20), 16, h - 16),
+        color,
+        "center"
+      );
     }
   }
 
@@ -459,15 +725,18 @@
       drawMoonDisc(p.x, p.y, r, pos.illuminated, tangentAngle(cam, v, sunVec, p));
     }
 
+    drawTargetBracket(p.x, p.y, Math.max(r * 2.1, 22), color);
+
     if (state.showLabels) {
-      labelStyle(12, 600);
-      outlinedText(label, p.x, p.y - r - 14, color);
-      labelStyle(10, 500);
-      outlinedText(
-        pos.alt.toFixed(1) + "° alt · " + pos.az.toFixed(0) + "° " + compassName(pos.az),
+      drawCallout(
         p.x,
-        p.y + r + 14,
-        color
+        p.y,
+        Math.max(r * 2.1, 22),
+        isSun ? "SOL" : "LUNA",
+        (pos.alt >= 0 ? "+" : "") + pos.alt.toFixed(1) + "° / " + pos.az.toFixed(1) + "° " + compassName(pos.az),
+        color,
+        w,
+        h
       );
     }
   }
@@ -477,14 +746,26 @@
     const { w, h } = sizeCanvas();
     const cam = makeCamera(w, h);
     ctx.clearRect(0, 0, w, h);
-    if (mode === "sky") drawSky(cam, w, h);
-    if (state.showCompass) drawHorizon(cam, w, h);
+    if (mode === "sky") {
+      drawSky(cam, w, h);
+      drawGroundGrid(cam, w, h);
+    }
+    drawVignette(w, h);
+    if (state.showCompass) {
+      drawPitchLadder(cam, w, h);
+      drawHorizon(cam, w, h);
+    }
     if (state.showPaths && paths) {
       drawPath(cam, paths.moon, MOON_COLOR, w, h);
       drawPath(cam, paths.sun, SUN_COLOR, w, h);
     }
     drawBody(cam, current.moon, w, h);
     drawBody(cam, current.sun, w, h);
+    if (state.showCompass) {
+      drawBearingTape(cam, w, h);
+      drawReticle(w, h);
+    }
+    drawFrame(w, h);
   }
 
   /* ---------- readouts ---------- */
@@ -653,8 +934,8 @@
     el.pano.hidden = next !== "street";
     el.note.textContent =
       next === "street"
-        ? "Street View — drag to look around, click the arrows to move along the street."
-        : "Sky view — drag to look around, scroll to zoom.";
+        ? "STREET VIEW · DRAG TO SLEW · ARROWS TO ADVANCE"
+        : "SKY VIEW · DRAG TO SLEW · SCROLL TO ZOOM";
     if (next === "street") startPovSync();
     else stopPovSync();
     draw();
@@ -870,6 +1151,104 @@
     });
   }
 
+  /* ---------- address search ----------
+     OpenStreetMap's Nominatim: keyless, CORS-enabled and read-only, so it fits
+     the no-backend rule. Its usage policy caps callers at one request per
+     second, which is why this only fires on an explicit submit — never per
+     keystroke. Everything else in the tool keeps working when it is offline. */
+
+  const NOMINATIM = "https://nominatim.openstreetmap.org/search";
+  let searchSeq = 0;
+
+  function clearResults() {
+    el.searchResults.innerHTML = "";
+    el.searchResults.hidden = true;
+  }
+
+  function guessOffsetFromLongitude(lon) {
+    return Math.round(lon / 15) * 60;
+  }
+
+  function applySearchHit(hit) {
+    clearResults();
+    el.searchInput.value = hit.display_name;
+    el.searchStatus.textContent = hit.display_name;
+    const lat = parseFloat(hit.lat);
+    const lon = parseFloat(hit.lon);
+    applyLocation(lat, lon, false);
+    const guess = guessOffsetFromLongitude(lon);
+    if (Math.abs(guess - state.tz) > 120) {
+      el.searchStatus.textContent =
+        hit.display_name + " — local time there is probably around " + fmtOffset(guess) + "; adjust the UTC offset if needed.";
+    }
+  }
+
+  function renderResults(hits) {
+    el.searchResults.innerHTML = "";
+    for (const hit of hits) {
+      const li = document.createElement("li");
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "result-btn";
+      btn.textContent = hit.display_name;
+      btn.addEventListener("click", () => applySearchHit(hit));
+      li.appendChild(btn);
+      el.searchResults.appendChild(li);
+    }
+    el.searchResults.hidden = hits.length === 0;
+  }
+
+  async function runSearch() {
+    const query = el.searchInput.value.trim();
+    if (!query) return;
+
+    const coords = parseCoords(query);
+    if (coords) {
+      clearResults();
+      el.searchStatus.textContent = "Coordinates recognised.";
+      applyLocation(coords.lat, coords.lon, false);
+      return;
+    }
+
+    const seq = ++searchSeq;
+    el.searchStatus.textContent = "Searching…";
+    clearResults();
+    try {
+      const url = NOMINATIM + "?format=jsonv2&limit=5&q=" + encodeURIComponent(query);
+      const response = await fetch(url, { headers: { Accept: "application/json" } });
+      if (!response.ok) throw new Error("HTTP " + response.status);
+      const hits = await response.json();
+      if (seq !== searchSeq) return;
+      if (!Array.isArray(hits) || hits.length === 0) {
+        el.searchStatus.textContent = "No place matched that. Try adding a city or country.";
+        return;
+      }
+      if (hits.length === 1) {
+        applySearchHit(hits[0]);
+        return;
+      }
+      el.searchStatus.textContent = hits.length + " matches — pick one:";
+      renderResults(hits);
+    } catch (err) {
+      if (seq !== searchSeq) return;
+      el.searchStatus.textContent = "Address lookup unavailable offline — enter coordinates instead.";
+    }
+  }
+
+  el.searchBtn.addEventListener("click", runSearch);
+  el.searchInput.addEventListener("keydown", (ev) => {
+    if (ev.key === "Enter") {
+      ev.preventDefault();
+      runSearch();
+    }
+  });
+
+  el.panelsToggle.addEventListener("click", () => {
+    const off = document.body.classList.toggle("panels-off");
+    el.panelsToggle.setAttribute("aria-expanded", off ? "false" : "true");
+    draw();
+  });
+
   el.geolocate.addEventListener("click", () => {
     if (!navigator.geolocation) {
       setStatus("This browser has no geolocation support.");
@@ -1018,6 +1397,11 @@
   /* ---------- boot ---------- */
 
   function init() {
+    if (window.matchMedia && window.matchMedia("(max-width: 860px)").matches) {
+      document.body.classList.add("panels-off");
+      el.panelsToggle.setAttribute("aria-expanded", "false");
+    }
+    readHudTokens();
     buildTimezones();
     buildPresets();
     loadState();

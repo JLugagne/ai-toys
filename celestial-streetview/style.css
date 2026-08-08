@@ -1,288 +1,93 @@
-/* Celestial Bodies in Street View — uses the shared color tokens from assets/style.css */
+/* Celestial Bodies in Street View — layout and HUD skin.
 
-body.wide {
-  max-width: 1180px;
+   The shared color tokens from assets/style.css are never redefined here. The
+   --hud-* variables below are *new* names scoped to this tool's body: the page
+   is a full-viewport overlay sitting on photography, so its panels need a
+   surface that stays legible over a night panorama in either system theme.
+   var(--accent) still drives focus rings and the primary action.
+
+   Everything is driven off a single hue: set --hud-hue to 35 for an amber
+   cockpit, 145 for phosphor green. app.js reads these same custom properties
+   back out with getComputedStyle, so the canvas HUD recolors with the CSS. */
+
+@property --hud-sweep {
+  syntax: "<percentage>";
+  initial-value: -20%;
+  inherits: false;
+}
+
+@property --hud-pulse {
+  syntax: "<number>";
+  initial-value: 1;
+  inherits: false;
+}
+
+body.hud {
+  --hud-hue: 205;
+  --hud-ink: oklch(0.87 0.13 var(--hud-hue));
+  --hud-ink-strong: oklch(0.97 0.04 var(--hud-hue));
+  --hud-ink-dim: oklch(0.8 0.08 var(--hud-hue) / 0.7);
+  --hud-line: oklch(0.8 0.12 var(--hud-hue) / 0.3);
+  --hud-faint: oklch(0.8 0.12 var(--hud-hue) / 0.16);
+  --hud-glow: oklch(0.87 0.16 var(--hud-hue) / 0.55);
+  --hud-surface: oklch(0.19 0.035 var(--hud-hue) / 0.66);
+  --hud-canvas-panel: oklch(0.16 0.03 var(--hud-hue) / 0.55);
+  --hud-void: oklch(0.13 0.02 var(--hud-hue));
+  --hud-sun: oklch(0.83 0.16 78);
+  --hud-moon: oklch(0.92 0.03 250);
+
+  --hud-top: 46px;
+  --notch: 15px;
+  --mono: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+
+  margin: 0;
+  padding: 0;
+  max-width: none;
+  block-size: 100dvh;
+  overflow: hidden;
+  overscroll-behavior: none;
+  background: var(--hud-void);
+  color: var(--hud-ink-strong);
+  font-family: var(--mono);
+  text-rendering: optimizeLegibility;
 }
 
 [hidden] {
   display: none !important;
 }
 
-.back-link {
-  margin: 0 0 0.5rem;
-  font-size: 0.9rem;
+::selection {
+  background: var(--hud-ink);
+  color: var(--hud-void);
 }
 
-.spec-line {
-  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
-  font-size: 0.85rem;
-  color: var(--fg);
-  opacity: 0.7;
-  border-top: 1px solid var(--border);
-  border-bottom: 1px solid var(--border);
-  padding: 0.45rem 0;
-  margin: 0 0 1rem;
-}
-
-.lede {
-  opacity: 0.8;
-  max-width: 62ch;
-}
-
-/* --- Layout --- */
-
-.tool-layout {
-  display: grid;
-  grid-template-columns: minmax(280px, 340px) minmax(0, 1fr);
-  gap: clamp(1.5rem, 4vw, 2.5rem);
-  align-items: start;
-}
-
-@media (max-width: 860px) {
-  .tool-layout {
-    grid-template-columns: 1fr;
-  }
-
-  .preview-pane {
-    order: -1;
-  }
-}
-
-.controls {
-  display: flex;
-  flex-direction: column;
-  gap: 1.5rem;
-  min-width: 0;
-}
-
-.field-group h2 {
-  font-size: 1rem;
-  margin: 0 0 0.6rem;
-}
-
-.field-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.75rem;
-  align-items: end;
-}
-
-.field-row label,
-label.stacked {
-  display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
-  font-size: 0.85rem;
-  flex: 1;
-  min-width: 110px;
-}
-
-label.stacked {
-  margin-top: 0.75rem;
-}
-
-input[type="number"],
-input[type="date"],
-input[type="time"],
-input[type="text"],
-select {
-  padding: 0.4rem 0.5rem;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: transparent;
-  color: var(--fg);
-  font-size: 0.95rem;
-  width: 100%;
-  font-family: inherit;
-}
-
-select {
-  background: var(--bg);
-}
-
-input:focus-visible,
-select:focus-visible,
-button:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
-}
-
-.hint {
-  font-size: 0.78rem;
-  opacity: 0.65;
-  margin: 0.4rem 0 0.6rem;
-}
-
-.hint code {
-  font-size: 0.95em;
-}
-
-.presets {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.35rem;
-  margin-bottom: 0.6rem;
-}
-
-.presets button,
-.chip {
-  border: 1px solid var(--border);
-  background: transparent;
-  color: var(--fg);
-  border-radius: 6px;
-  padding: 0.3rem 0.6rem;
-  font-size: 0.78rem;
-  font-family: inherit;
-  cursor: pointer;
-}
-
-.presets button:hover,
-.chip:hover {
-  border-color: var(--accent);
-  color: var(--accent);
-}
-
-.presets button[aria-pressed="true"] {
-  border-color: var(--accent);
-  color: var(--accent);
-}
-
-.button-row {
-  display: flex;
-  gap: 0.35rem;
-  margin-top: 0.75rem;
-}
-
-.button-row .chip {
-  flex: 1;
-}
-
-button.primary {
-  background: var(--accent);
-  color: #fff;
-  border: none;
-  border-radius: 8px;
-  padding: 0.55rem 0.9rem;
-  font-size: 0.9rem;
-  font-family: inherit;
-  cursor: pointer;
-  font-weight: 600;
-}
-
-button.secondary {
-  background: transparent;
-  color: var(--accent);
-  border: 1px dashed var(--border);
-  border-radius: 8px;
-  padding: 0.55rem 1rem;
-  font-size: 0.88rem;
-  font-family: inherit;
-  cursor: pointer;
-  width: 100%;
-}
-
-button.secondary:hover {
-  border-color: var(--accent);
-}
-
-.status-msg {
-  font-size: 0.8rem;
-  min-height: 1.2em;
-  opacity: 0.8;
-  margin: 0.5rem 0 0;
-}
-
-.check-list {
-  display: flex;
-  flex-direction: column;
-  gap: 0.4rem;
-  margin-bottom: 0.9rem;
-}
-
-.check-line {
-  display: flex;
-  align-items: center;
-  gap: 0.45rem;
-  font-size: 0.85rem;
-}
-
-/* --- Readouts --- */
-
-.readouts {
-  border-top: 1px solid var(--border);
-  padding-top: 1rem;
-}
-
-.readout {
-  margin: 0 0 0.9rem;
-}
-
-.readout-title {
-  display: flex;
-  align-items: center;
-  gap: 0.4rem;
-  font-weight: 600;
-  font-size: 0.9rem;
-}
-
-.readout dd {
-  margin: 0.2rem 0 0 1.15rem;
-  font-size: 0.85rem;
-  font-variant-numeric: tabular-nums;
-}
-
-.readout dd.muted {
-  opacity: 0.7;
-  font-size: 0.8rem;
-}
-
-.swatch {
-  width: 0.7rem;
-  height: 0.7rem;
-  border-radius: 50%;
-  flex: 0 0 auto;
-}
-
-.swatch.sun {
-  background: #f2b632;
-}
-
-.swatch.moon {
-  background: #cfd8e8;
-}
-
-/* --- Sky / panorama view --- */
-
-.preview-pane {
-  display: flex;
-  flex-direction: column;
-  gap: 1rem;
-  min-width: 0;
-  width: 100%;
-}
+/* --- Stage: panorama + overlay canvas ---------------------------------- */
 
 .view-wrap {
-  position: relative;
-  width: 100%;
-  aspect-ratio: 16 / 9;
-  max-height: min(70vh, 620px);
-  min-height: 240px;
-  border: 1px solid var(--border);
-  border-radius: 10px;
+  position: fixed;
+  inset: 0;
   overflow: hidden;
-  background: #10131b;
+  background: var(--hud-void);
 }
 
 .pano,
 .overlay {
   position: absolute;
   inset: 0;
-  width: 100%;
-  height: 100%;
+  inline-size: 100%;
+  block-size: 100%;
+}
+
+/* z-index 0 forces the panorama to build its own stacking context, so the
+   high z-index layers Google injects inside it cannot paint over the overlay.
+   Without this the whole HUD vanishes the moment Street View loads. */
+.pano {
+  z-index: 0;
 }
 
 .overlay {
   display: block;
+  z-index: 2;
   touch-action: none;
   cursor: grab;
 }
@@ -296,86 +101,737 @@ button.secondary:hover {
   cursor: grabbing;
 }
 
-.view-note {
+/* CRT scanlines + bloom, painted above the canvas (same z-index, later in tree
+   order) but below the controls. Cheaper here than re-filling them per frame. */
+.view-wrap::after {
+  content: "";
   position: absolute;
-  left: 0.6rem;
-  bottom: 0.5rem;
-  margin: 0;
-  max-width: calc(100% - 1.2rem);
-  padding: 0.25rem 0.5rem;
-  border-radius: 6px;
-  background: rgba(0, 0, 0, 0.55);
-  color: #fff;
-  font-size: 0.75rem;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+  background:
+    repeating-linear-gradient(
+      to bottom,
+      oklch(0.8 0.12 var(--hud-hue) / 0.05) 0 1px,
+      transparent 1px 3px
+    );
+  mix-blend-mode: screen;
+}
+
+/* --- HUD layer -------------------------------------------------------- */
+
+.hud-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 3;
+  display: grid;
+  grid-template-columns: minmax(0, 320px) minmax(0, 1fr) minmax(0, 320px);
+  grid-template-rows: var(--hud-top) minmax(0, 1fr) auto;
+  grid-template-areas:
+    "head head head"
+    "left .    right"
+    "foot foot foot";
+  gap: 12px;
+  padding: 0 14px 14px;
   pointer-events: none;
 }
 
-/* --- Time scrubber --- */
+.hud-layer > * {
+  pointer-events: auto;
+}
+
+/* --- Header ----------------------------------------------------------- */
+
+.hud-header {
+  grid-area: head;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  block-size: var(--hud-top);
+  pointer-events: none;
+}
+
+.hud-header > * {
+  pointer-events: auto;
+}
+
+.hud-ident {
+  position: relative;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 5px 14px 5px 12px;
+  overflow: hidden;
+  background: var(--hud-surface);
+  box-shadow: inset 0 0 0 1px var(--hud-line);
+  clip-path: polygon(0 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%);
+  backdrop-filter: blur(8px) saturate(1.3);
+}
+
+.hud-ident::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(
+    100deg,
+    transparent var(--hud-sweep),
+    oklch(0.9 0.14 var(--hud-hue) / 0.22) calc(var(--hud-sweep) + 7%),
+    transparent calc(var(--hud-sweep) + 15%)
+  );
+  animation: hud-sweep 7s linear infinite;
+}
+
+@keyframes hud-sweep {
+  to {
+    --hud-sweep: 110%;
+  }
+}
+
+.hud-ident h1 {
+  margin: 0;
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--hud-ink-strong);
+  text-shadow: 0 0 12px var(--hud-glow);
+}
+
+.hud-sub {
+  font-size: 0.58rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--hud-ink-dim);
+}
+
+.back-link {
+  color: var(--hud-ink);
+  text-decoration: none;
+  font-size: 0.95rem;
+  line-height: 1;
+  text-shadow: 0 0 10px var(--hud-glow);
+}
+
+.back-link:hover {
+  color: var(--hud-ink-strong);
+}
+
+.spec-line {
+  flex: 1;
+  min-inline-size: 0;
+  margin: 0;
+  padding: 6px 12px;
+  background: var(--hud-surface);
+  box-shadow: inset 0 0 0 1px var(--hud-line);
+  clip-path: polygon(8px 0, 100% 0, 100% 100%, 8px 100%, 0 50%);
+  backdrop-filter: blur(8px);
+  font-size: 0.62rem;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--hud-ink-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-variant-numeric: tabular-nums;
+}
+
+/* --- Panels ----------------------------------------------------------- */
+
+.hud-panel {
+  container-type: inline-size;
+  position: relative;
+  align-self: start;
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  max-block-size: 100%;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 13px 15px 15px;
+  color: var(--hud-ink-dim);
+  background:
+    linear-gradient(135deg, var(--hud-ink) 0 calc(var(--notch) * 0.62), transparent 0),
+    linear-gradient(to bottom, oklch(0.8 0.12 var(--hud-hue) / 0.09), transparent 45%),
+    var(--hud-surface);
+  box-shadow: inset 0 0 0 1px var(--hud-line);
+  clip-path: polygon(
+    var(--notch) 0,
+    100% 0,
+    100% calc(100% - var(--notch)),
+    calc(100% - var(--notch)) 100%,
+    0 100%,
+    0 var(--notch)
+  );
+  backdrop-filter: blur(9px) saturate(1.25);
+  scrollbar-width: thin;
+  scrollbar-color: var(--hud-line) transparent;
+}
+
+.panel-left {
+  grid-area: left;
+}
+
+.panel-right {
+  grid-area: right;
+}
+
+/* Brackets on the two square corners; the other two are cut by the notch. */
+.hud-panel::before,
+.hud-panel::after {
+  content: "";
+  position: absolute;
+  inline-size: 11px;
+  block-size: 11px;
+  border: 1px solid var(--hud-ink);
+  pointer-events: none;
+  filter: drop-shadow(0 0 4px var(--hud-glow));
+}
+
+.hud-panel::before {
+  inset-block-start: 3px;
+  inset-inline-end: 3px;
+  border-width: 1px 1px 0 0;
+}
+
+.hud-panel::after {
+  inset-block-end: 3px;
+  inset-inline-start: 3px;
+  border-width: 0 0 1px 1px;
+}
+
+.hud-panel h2 {
+  margin: 0;
+  font-size: 0.63rem;
+  font-weight: 700;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--hud-ink);
+  text-shadow: 0 0 10px var(--hud-glow);
+}
+
+.hud-panel h2.spaced {
+  margin-block-start: 0.5rem;
+  padding-block-start: 0.7rem;
+  border-block-start: 1px solid var(--hud-line);
+}
+
+body.panels-off .hud-panel {
+  display: none;
+}
+
+/* --- Form controls ---------------------------------------------------- */
+
+.field-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.field-row label {
+  flex: 1 1 92px;
+}
+
+.field-row label,
+label.stacked {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  min-inline-size: 0;
+  font-size: 0.58rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--hud-ink-dim);
+}
+
+/* Terminal-style fields: a baseline, not a box. */
+input[type="number"],
+input[type="date"],
+input[type="time"],
+input[type="text"],
+select {
+  inline-size: 100%;
+  padding: 0.3rem 0.1rem;
+  border: 0;
+  border-block-end: 1px solid var(--hud-line);
+  border-radius: 0;
+  background: linear-gradient(to bottom, transparent 55%, oklch(0.8 0.12 var(--hud-hue) / 0.07));
+  color: var(--hud-ink-strong);
+  font-family: inherit;
+  font-size: 0.78rem;
+  font-variant-numeric: tabular-nums;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+input:hover,
+select:hover {
+  border-block-end-color: var(--hud-ink);
+}
+
+input:focus,
+select:focus {
+  outline: 0;
+  border-block-end-color: var(--hud-ink);
+  box-shadow: 0 1px 12px -2px var(--hud-glow);
+}
+
+input:focus-visible,
+select:focus-visible,
+button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+select {
+  cursor: pointer;
+}
+
+select option {
+  background: var(--hud-void);
+  color: oklch(0.97 0.04 205);
+}
+
+input::placeholder {
+  color: var(--hud-ink-dim);
+  opacity: 0.55;
+}
+
+/* Dark-scheme UI widgets (date picker icon, dropdown arrow, checkbox). */
+input[type="date"],
+input[type="time"],
+input[type="checkbox"],
+select {
+  color-scheme: dark;
+}
+
+.search-row {
+  display: flex;
+  gap: 0.35rem;
+  align-items: end;
+}
+
+.search-row input {
+  flex: 1;
+  min-inline-size: 0;
+}
+
+.search-results {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  box-shadow: inset 0 0 0 1px var(--hud-line);
+  max-block-size: 170px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--hud-line) transparent;
+}
+
+.result-btn {
+  display: block;
+  inline-size: 100%;
+  padding: 0.42rem 0.55rem;
+  border: 0;
+  border-block-end: 1px solid var(--hud-faint);
+  background: transparent;
+  color: var(--hud-ink-strong);
+  font-family: inherit;
+  font-size: 0.66rem;
+  line-height: 1.4;
+  text-align: start;
+  cursor: pointer;
+}
+
+.search-results li:last-child .result-btn {
+  border-block-end: 0;
+}
+
+.result-btn:hover {
+  background: oklch(0.8 0.12 var(--hud-hue) / 0.14);
+  color: var(--hud-ink);
+}
+
+.presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+}
+
+.presets button,
+.chip {
+  border: 0;
+  box-shadow: inset 0 0 0 1px var(--hud-line);
+  background: transparent;
+  color: var(--hud-ink-dim);
+  padding: 0.3rem 0.55rem;
+  font-family: inherit;
+  font-size: 0.58rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  cursor: pointer;
+  clip-path: polygon(5px 0, 100% 0, 100% calc(100% - 5px), calc(100% - 5px) 100%, 0 100%, 0 5px);
+}
+
+.presets button:hover,
+.chip:hover {
+  box-shadow: inset 0 0 0 1px var(--hud-ink);
+  color: var(--hud-ink);
+  background: oklch(0.8 0.12 var(--hud-hue) / 0.1);
+}
+
+.presets button[aria-pressed="true"] {
+  background: var(--hud-ink);
+  color: var(--hud-void);
+  box-shadow: 0 0 14px var(--hud-glow);
+}
+
+#panels-toggle {
+  background: var(--hud-surface);
+  backdrop-filter: blur(8px);
+}
+
+.button-row {
+  display: flex;
+  gap: 0.3rem;
+}
+
+.button-row .chip {
+  flex: 1;
+  text-align: center;
+}
+
+button.primary {
+  border: 0;
+  background: var(--accent);
+  color: #fff;
+  padding: 0.5rem 0.9rem;
+  font-family: inherit;
+  font-size: 0.66rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  font-weight: 700;
+  cursor: pointer;
+  clip-path: polygon(7px 0, 100% 0, 100% calc(100% - 7px), calc(100% - 7px) 100%, 0 100%, 0 7px);
+}
+
+button.secondary {
+  inline-size: 100%;
+  padding: 0.48rem 0.6rem;
+  border: 0;
+  box-shadow: inset 0 0 0 1px var(--hud-line);
+  background: transparent;
+  color: var(--hud-ink);
+  font-family: inherit;
+  font-size: 0.62rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  cursor: pointer;
+  clip-path: polygon(7px 0, 100% 0, 100% calc(100% - 7px), calc(100% - 7px) 100%, 0 100%, 0 7px);
+}
+
+button.secondary:hover {
+  box-shadow: inset 0 0 0 1px var(--hud-ink), 0 0 18px -6px var(--hud-glow);
+  background: oklch(0.8 0.12 var(--hud-hue) / 0.08);
+}
+
+.status-msg {
+  margin: 0;
+  min-block-size: 1em;
+  font-size: 0.6rem;
+  line-height: 1.5;
+  color: var(--hud-ink-dim);
+  text-wrap: pretty;
+}
+
+.check-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.check-line {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-size: 0.61rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--hud-ink-dim);
+  cursor: pointer;
+}
+
+.check-line:hover {
+  color: var(--hud-ink);
+}
+
+.check-line input[type="checkbox"] {
+  appearance: none;
+  inline-size: 13px;
+  block-size: 13px;
+  margin: 0;
+  flex: 0 0 auto;
+  box-shadow: inset 0 0 0 1px var(--hud-line);
+  background: transparent;
+  display: grid;
+  place-content: center;
+  cursor: pointer;
+}
+
+.check-line input[type="checkbox"]::before {
+  content: "";
+  inline-size: 7px;
+  block-size: 7px;
+  background: var(--hud-ink);
+  clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%);
+  scale: 0;
+  transition: scale 0.14s ease;
+}
+
+.check-line input[type="checkbox"]:checked {
+  box-shadow: inset 0 0 0 1px var(--hud-ink), 0 0 10px -2px var(--hud-glow);
+}
+
+.check-line input[type="checkbox"]:checked::before {
+  scale: 1;
+}
+
+/* --- Footer: readouts + time scrub ------------------------------------ */
+
+.hud-footer {
+  grid-area: foot;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 2fr) minmax(0, 1fr);
+  align-items: end;
+  gap: 12px;
+  pointer-events: none;
+}
+
+.hud-footer > * {
+  pointer-events: auto;
+}
+
+.readout {
+  margin: 0;
+  padding: 9px 13px;
+  background: var(--hud-surface);
+  box-shadow: inset 0 0 0 1px var(--hud-line);
+  backdrop-filter: blur(9px) saturate(1.25);
+  border-inline-start: 2px solid var(--hud-ink);
+  clip-path: polygon(0 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%);
+}
+
+.readout-title {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--hud-ink);
+  text-shadow: 0 0 10px var(--hud-glow);
+}
+
+.readout dd {
+  margin: 0.22rem 0 0;
+  font-size: 0.66rem;
+  line-height: 1.45;
+  font-variant-numeric: tabular-nums;
+  color: var(--hud-ink-strong);
+  text-wrap: pretty;
+}
+
+.readout dd.muted {
+  font-size: 0.6rem;
+  color: var(--hud-ink-dim);
+}
+
+#moon-readout {
+  text-align: end;
+  border-inline-start: 0;
+  border-inline-end: 2px solid var(--hud-ink);
+  clip-path: polygon(0 0, 100% 0, 100% 100%, 10px 100%, 0 calc(100% - 10px));
+}
+
+#moon-readout .readout-title {
+  justify-content: flex-end;
+}
+
+.swatch {
+  inline-size: 0.55rem;
+  block-size: 0.55rem;
+  border-radius: 50%;
+  flex: 0 0 auto;
+}
+
+.swatch.sun {
+  background: var(--hud-sun);
+  box-shadow: 0 0 9px oklch(0.83 0.16 78 / 0.8);
+}
+
+.swatch.moon {
+  background: var(--hud-moon);
+  box-shadow: 0 0 9px oklch(0.92 0.03 250 / 0.7);
+}
 
 .scrub {
   display: flex;
   flex-direction: column;
-  gap: 0.3rem;
-}
-
-.scrub-label {
-  font-size: 0.8rem;
-  opacity: 0.75;
+  gap: 0.2rem;
+  padding: 9px 16px 10px;
+  background: var(--hud-surface);
+  box-shadow: inset 0 0 0 1px var(--hud-line);
+  backdrop-filter: blur(9px) saturate(1.25);
+  clip-path: polygon(12px 0, calc(100% - 12px) 0, 100% 12px, 100% 100%, 0 100%, 0 12px);
 }
 
 .scrub input[type="range"] {
-  width: 100%;
-  accent-color: var(--accent);
+  appearance: none;
+  inline-size: 100%;
+  block-size: 20px;
+  margin: 0;
+  background: transparent;
+  cursor: ew-resize;
+}
+
+.scrub input[type="range"]::-webkit-slider-runnable-track {
+  block-size: 2px;
+  background: linear-gradient(90deg, var(--hud-faint), var(--hud-line), var(--hud-ink));
+}
+
+.scrub input[type="range"]::-moz-range-track {
+  block-size: 2px;
+  background: linear-gradient(90deg, var(--hud-faint), var(--hud-line), var(--hud-ink));
+}
+
+.scrub input[type="range"]::-webkit-slider-thumb {
+  appearance: none;
+  inline-size: 12px;
+  block-size: 12px;
+  margin-block-start: -5px;
+  rotate: 45deg;
+  background: var(--hud-ink);
+  box-shadow: 0 0 12px var(--hud-glow);
+}
+
+.scrub input[type="range"]::-moz-range-thumb {
+  inline-size: 12px;
+  block-size: 12px;
+  border: 0;
+  rotate: 45deg;
+  background: var(--hud-ink);
+  box-shadow: 0 0 12px var(--hud-glow);
 }
 
 .scrub-ticks {
   display: flex;
   justify-content: space-between;
-  font-size: 0.7rem;
-  opacity: 0.55;
+  font-size: 0.56rem;
+  letter-spacing: 0.12em;
+  color: var(--hud-ink-dim);
   font-variant-numeric: tabular-nums;
 }
 
-/* --- API key dialog --- */
+.view-note {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  margin: 0.2rem 0 0;
+  font-size: 0.56rem;
+  letter-spacing: 0.16em;
+  color: var(--hud-ink-dim);
+}
+
+.view-note::before {
+  content: "";
+  inline-size: 5px;
+  block-size: 5px;
+  border-radius: 50%;
+  background: var(--hud-ink);
+  opacity: var(--hud-pulse);
+  box-shadow: 0 0 8px var(--hud-glow);
+  animation: hud-blink 2.4s ease-in-out infinite;
+}
+
+@keyframes hud-blink {
+  0%,
+  100% {
+    --hud-pulse: 1;
+  }
+  50% {
+    --hud-pulse: 0.25;
+  }
+}
+
+/* --- API key dialog --------------------------------------------------- */
 
 .key-dialog {
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  background: var(--bg);
-  color: var(--fg);
-  padding: clamp(1rem, 3vw, 1.75rem);
-  max-width: 40rem;
-  width: calc(100vw - 2rem);
+  border: 0;
+  box-shadow: inset 0 0 0 1px var(--hud-line), 0 24px 70px -20px oklch(0 0 0 / 0.8);
+  background: var(--hud-void);
+  color: var(--hud-ink-strong);
+  padding: clamp(1rem, 3vw, 1.7rem);
+  max-inline-size: 40rem;
+  inline-size: calc(100vw - 2rem);
+  clip-path: polygon(
+    var(--notch) 0,
+    100% 0,
+    100% calc(100% - var(--notch)),
+    calc(100% - var(--notch)) 100%,
+    0 100%,
+    0 var(--notch)
+  );
 }
 
 .key-dialog::backdrop {
-  background: rgba(0, 0, 0, 0.5);
+  background: oklch(0.13 0.02 205 / 0.78);
+  backdrop-filter: blur(3px);
 }
 
 .key-dialog h2 {
   margin: 0 0 0.75rem;
-  font-size: 1.15rem;
+  font-size: 0.8rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--hud-ink);
+  text-shadow: 0 0 12px var(--hud-glow);
 }
 
-.key-dialog p {
-  font-size: 0.88rem;
+.key-dialog p,
+.key-dialog .steps {
+  font-size: 0.8rem;
+  line-height: 1.6;
   margin: 0 0 0.75rem;
+  color: var(--hud-ink-dim);
+  text-wrap: pretty;
 }
 
 .key-dialog .steps {
-  font-size: 0.88rem;
-  padding-left: 1.2rem;
-  margin: 0 0 0.9rem;
+  padding-inline-start: 1.2rem;
 }
 
 .key-dialog .steps li {
-  margin-bottom: 0.35rem;
+  margin-block-end: 0.35rem;
+}
+
+.key-dialog strong,
+.key-dialog em {
+  color: var(--hud-ink-strong);
+}
+
+.key-dialog a {
+  color: var(--hud-ink);
 }
 
 .key-dialog .privacy {
-  border-left: 2px solid var(--border);
-  padding-left: 0.7rem;
-  opacity: 0.85;
+  border-inline-start: 2px solid var(--hud-line);
+  padding-inline-start: 0.7rem;
+}
+
+.key-dialog label.stacked {
+  margin: 0.6rem 0;
 }
 
 .dialog-actions {
@@ -383,18 +839,77 @@ button.secondary:hover {
   flex-wrap: wrap;
   align-items: center;
   gap: 0.5rem;
-  margin-top: 1rem;
+  margin-block-start: 1rem;
 }
 
 .dialog-actions .spacer {
   flex: 1;
 }
 
-@media (prefers-reduced-motion: no-preference) {
-  .presets button,
-  .chip,
-  button.primary,
-  button.secondary {
-    transition: border-color 0.15s ease, color 0.15s ease;
+/* --- Panel-level responsiveness (container query, not viewport) -------- */
+
+@container (max-width: 215px) {
+  .field-row {
+    flex-direction: column;
+  }
+
+  .button-row {
+    flex-wrap: wrap;
+  }
+}
+
+/* --- Viewport responsiveness ------------------------------------------ */
+
+@media (max-width: 860px) {
+  .hud-layer {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas:
+      "head"
+      "left"
+      "foot";
+    padding: 0 10px 10px;
+  }
+
+  .panel-right {
+    grid-area: left;
+  }
+
+  .hud-panel {
+    max-block-size: 33dvh;
+  }
+
+  .hud-sub {
+    display: none;
+  }
+
+  .hud-footer {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 8px;
+  }
+
+  #sun-readout,
+  #moon-readout {
+    display: none;
+  }
+}
+
+@media (max-width: 560px) {
+  .hud-ident h1 {
+    font-size: 0.68rem;
+  }
+
+  .spec-line {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hud-ident::after,
+  .view-note::before {
+    animation: none;
+  }
+
+  .check-line input[type="checkbox"]::before {
+    transition: none;
   }
 }
