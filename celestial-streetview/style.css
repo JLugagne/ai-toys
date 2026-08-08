@@ -518,6 +518,20 @@ select {
   margin-inline-end: 0.2rem;
 }
 
+.mode-row {
+  display: flex;
+  gap: 0.25rem;
+  padding: 4px;
+  background: var(--hud-surface);
+  box-shadow: inset 0 0 0 1px var(--hud-line);
+  backdrop-filter: blur(8px);
+}
+
+.view-wrap.map .overlay {
+  cursor: crosshair;
+}
+
+.mode-row .chip[aria-pressed="true"],
 .visor-row .chip[aria-pressed="true"] {
   background: var(--hud-ink);
   color: var(--hud-void);

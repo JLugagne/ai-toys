@@ -135,6 +135,7 @@
     fovBasis: "width",
     autoTz: true,
     zone: null,
+    mapZoom: 17,
   };
 
   const el = {
@@ -174,6 +175,7 @@
     searchResults: document.getElementById("search-results"),
     searchStatus: document.getElementById("search-status"),
     panelsToggle: document.getElementById("panels-toggle"),
+    modeRow: document.getElementById("mode-row"),
     visorRow: document.getElementById("visor-row"),
     autoTz: document.getElementById("auto-tz"),
     tzStatus: document.getElementById("tz-status"),
@@ -403,6 +405,142 @@
       ctx.fillStyle = glow;
       ctx.fillRect(0, Math.max(0, skyBottom - 90), w, Math.min(90, skyBottom));
     }
+  }
+
+  /* --- 2D map -----------------------------------------------------------
+     A slippy map drawn straight onto the same canvas: Web Mercator tiles from
+     OpenStreetMap, no key and no library, so picking a spot works before you
+     ever supply a Street View key. The pin is fixed at the centre and the world
+     slides under it, which makes "put the site exactly here" one gesture.
+     OSM's tile policy asks for attribution and light use; both are honoured —
+     tiles are cached and only fetched for the visible viewport. */
+
+  const TILE = 256;
+  const OSM_TILES = "https://tile.openstreetmap.org/";
+  const tileCache = new Map();
+
+  function lonToWorldX(lon, z) {
+    return ((lon + 180) / 360) * Math.pow(2, z);
+  }
+
+  function latToWorldY(lat, z) {
+    const s = Math.sin(clamp(lat, -85.05, 85.05) * RAD);
+    return (0.5 - Math.log((1 + s) / (1 - s)) / (4 * Math.PI)) * Math.pow(2, z);
+  }
+
+  function worldXToLon(x, z) {
+    return (x / Math.pow(2, z)) * 360 - 180;
+  }
+
+  function worldYToLat(y, z) {
+    const n = Math.PI - (2 * Math.PI * y) / Math.pow(2, z);
+    return DEG * Math.atan(0.5 * (Math.exp(n) - Math.exp(-n)));
+  }
+
+  function getTile(z, x, y) {
+    const key = z + "/" + x + "/" + y;
+    const cached = tileCache.get(key);
+    if (cached) return cached;
+    if (tileCache.size > 400) {
+      for (const stale of Array.from(tileCache.keys()).slice(0, 150)) tileCache.delete(stale);
+    }
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.addEventListener("load", () => {
+      if (mode === "map") draw();
+    });
+    img.addEventListener("error", () => tileCache.delete(key));
+    img.src = OSM_TILES + z + "/" + x + "/" + y + ".png";
+    tileCache.set(key, img);
+    return img;
+  }
+
+  function drawMap(w, h) {
+    const z = Math.round(clamp(state.mapZoom, 2, 19));
+    const span = Math.pow(2, z);
+    const centerX = lonToWorldX(state.lon, z) * TILE;
+    const centerY = latToWorldY(state.lat, z) * TILE;
+    const left = centerX - w / 2;
+    const top = centerY - h / 2;
+
+    ctx.fillStyle = "#0a1520";
+    ctx.fillRect(0, 0, w, h);
+
+    const x0 = Math.floor(left / TILE);
+    const y0 = Math.floor(top / TILE);
+    const x1 = Math.floor((left + w) / TILE);
+    const y1 = Math.floor((top + h) / TILE);
+    for (let ty = y0; ty <= y1; ty++) {
+      if (ty < 0 || ty >= span) continue;
+      for (let tx = x0; tx <= x1; tx++) {
+        const wrapped = ((tx % span) + span) % span;
+        const img = getTile(z, wrapped, ty);
+        if (!img.complete || !img.naturalWidth) continue;
+        ctx.drawImage(img, Math.round(tx * TILE - left), Math.round(ty * TILE - top), TILE, TILE);
+      }
+    }
+
+    drawMapOverlay(w, h);
+  }
+
+  function drawMapOverlay(w, h) {
+    const cx = w / 2;
+    const cy = h / 2;
+
+    // Which way the panorama is facing, and where the bodies are, as bearings
+    // from the pin — the map's honest analogue of the horizon view.
+    const rayLen = Math.min(w, h) * 0.42;
+    const bearingRay = (az, color, dash) => {
+      const a = (az - 90) * RAD;
+      ctx.beginPath();
+      ctx.moveTo(cx, cy);
+      ctx.lineTo(cx + Math.cos(a) * rayLen, cy + Math.sin(a) * rayLen);
+      inkStroke(color, 2, dash);
+    };
+
+    ctx.save();
+    const cone = 22;
+    ctx.beginPath();
+    ctx.moveTo(cx, cy);
+    ctx.arc(cx, cy, rayLen * 0.8, (state.heading - 90 - cone / 2) * RAD, (state.heading - 90 + cone / 2) * RAD);
+    ctx.closePath();
+    ctx.fillStyle = "oklch(0.87 0.13 205 / 0.16)";
+    ctx.fill();
+    ctx.restore();
+
+    if (current.sun.up) bearingRay(current.sun.az, SUN_COLOR, [9, 4]);
+    if (current.moon.up) bearingRay(current.moon.az, MOON_COLOR, [3, 5]);
+
+    ctx.beginPath();
+    ctx.moveTo(cx, cy);
+    ctx.lineTo(cx + Math.cos((state.heading - 90) * RAD) * rayLen * 0.8, cy + Math.sin((state.heading - 90) * RAD) * rayLen * 0.8);
+    inkStroke(HUD_INK, 1.5);
+
+    ctx.beginPath();
+    ctx.arc(cx, cy, 9, 0, Math.PI * 2);
+    inkStroke(HUD_INK, 2);
+    inkRect(cx, cy, 3, HUD_INK);
+
+    hudFont(10, 700);
+    if (current.sun.up) hudLabel("SOL " + current.sun.az.toFixed(0) + "°", cx + Math.cos((current.sun.az - 90) * RAD) * (rayLen + 22), cy + Math.sin((current.sun.az - 90) * RAD) * (rayLen + 22), SUN_COLOR, "center");
+    if (current.moon.up) hudLabel("LUNA " + current.moon.az.toFixed(0) + "°", cx + Math.cos((current.moon.az - 90) * RAD) * (rayLen + 22), cy + Math.sin((current.moon.az - 90) * RAD) * (rayLen + 22), MOON_COLOR, "center");
+
+    hudFont(9, 600);
+    hudLabel("N", cx, cy - rayLen - 34, HUD_DIM, "center");
+    hudLabel("Z" + Math.round(state.mapZoom) + " · DRAG TO MOVE THE SITE · CLICK TO JUMP", cx, 26, HUD_DIM, "center");
+    hudFont(9, 500);
+    hudLabel("© OpenStreetMap contributors", w - 12, h - 12, HUD_DIM, "right");
+    drawFrame(w, h);
+  }
+
+  function mapPointToLatLon(px, py, w, h) {
+    const z = Math.round(clamp(state.mapZoom, 2, 19));
+    const centerX = lonToWorldX(state.lon, z) * TILE;
+    const centerY = latToWorldY(state.lat, z) * TILE;
+    return {
+      lat: worldYToLat((centerY - h / 2 + py) / TILE, z),
+      lon: worldXToLon((centerX - w / 2 + px) / TILE, z),
+    };
   }
 
   function drawVignette(w, h) {
@@ -839,8 +977,14 @@
   function draw() {
     if (!current) return;
     const { w, h } = sizeCanvas();
-    const cam = makeCamera(w, h);
     ctx.clearRect(0, 0, w, h);
+    // The map is a plan view: a horizon line, a pitch ladder and a bearing tape
+    // would all be meaningless looking straight down.
+    if (mode === "map") {
+      drawMap(w, h);
+      return;
+    }
+    const cam = makeCamera(w, h);
     if (mode === "sky") {
       drawSky(cam, w, h);
       drawGroundGrid(cam, w, h);
@@ -888,6 +1032,7 @@
   }
 
   function updateReadouts() {
+    if (!current || !events) return;
     el.sunPosition.textContent = describeAltAz(current.sun);
     el.sunTimes.textContent = describeEvents(events.sun, "Rise", "Set");
     el.moonPosition.textContent = describeAltAz(current.moon);
@@ -1057,6 +1202,7 @@
           fovBasis: state.fovBasis,
           autoTz: state.autoTz,
           zone: state.zone,
+          mapZoom: state.mapZoom,
         })
       );
     } catch (err) {
@@ -1072,7 +1218,7 @@
       saved = null;
     }
     if (!saved) return;
-    for (const k of ["lat", "lon", "tz", "heading", "pitch", "fov", "visor", "fovTrim"]) {
+    for (const k of ["lat", "lon", "tz", "heading", "pitch", "fov", "visor", "fovTrim", "mapZoom"]) {
       if (typeof saved[k] === "number" && isFinite(saved[k])) state[k] = saved[k];
     }
     for (const k of ["showPaths", "showCompass", "showLabels", "autoTz"]) {
@@ -1127,13 +1273,20 @@
   function setMode(next) {
     mode = next;
     el.wrap.classList.toggle("street", next === "street");
+    el.wrap.classList.toggle("map", next === "map");
     el.pano.hidden = next !== "street";
     el.note.textContent =
       next === "street"
         ? "STREET VIEW · DRAG TO SLEW · ARROWS TO ADVANCE"
+        : next === "map"
+        ? "MAP · DRAG TO MOVE THE SITE · SCROLL TO ZOOM"
         : "SKY VIEW · DRAG TO SLEW · SCROLL TO ZOOM";
+    for (const btn of el.modeRow.querySelectorAll("[data-mode]")) {
+      btn.setAttribute("aria-pressed", btn.dataset.mode === next ? "true" : "false");
+    }
     if (next === "street") startPovSync();
     else stopPovSync();
+    updateReadouts();
     draw();
   }
 
@@ -1488,6 +1641,17 @@
     saveState();
   });
 
+  el.modeRow.addEventListener("click", (ev) => {
+    const btn = ev.target.closest ? ev.target.closest("[data-mode]") : null;
+    if (!btn) return;
+    if (btn.dataset.mode === "street") {
+      enableStreetView();
+      return;
+    }
+    setMode(btn.dataset.mode);
+    saveState();
+  });
+
   el.panelsToggle.addEventListener("click", () => {
     const off = document.body.classList.toggle("panels-off");
     el.panelsToggle.setAttribute("aria-expanded", off ? "false" : "true");
@@ -1592,7 +1756,15 @@
   let dragLast = null;
   let pinchStart = null;
 
+  let mapDrag = null;
+
   el.canvas.addEventListener("pointerdown", (ev) => {
+    if (mode === "map") {
+      el.canvas.setPointerCapture(ev.pointerId);
+      mapDrag = { x: ev.clientX, y: ev.clientY, moved: 0 };
+      el.canvas.classList.add("dragging");
+      return;
+    }
     if (mode !== "sky") return;
     el.canvas.setPointerCapture(ev.pointerId);
     pointers.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
@@ -1605,6 +1777,22 @@
   });
 
   el.canvas.addEventListener("pointermove", (ev) => {
+    if (mode === "map") {
+      if (!mapDrag) return;
+      const dx = ev.clientX - mapDrag.x;
+      const dy = ev.clientY - mapDrag.y;
+      mapDrag.moved += Math.abs(dx) + Math.abs(dy);
+      const z = Math.round(clamp(state.mapZoom, 2, 19));
+      // Dragging moves the site itself; only the map repaints until release, so
+      // the astronomy is recomputed once rather than every frame.
+      state.lon = clamp(worldXToLon(lonToWorldX(state.lon, z) - dx / TILE, z), -180, 180);
+      state.lat = clamp(worldYToLat(latToWorldY(state.lat, z) - dy / TILE, z), -85, 85);
+      mapDrag.x = ev.clientX;
+      mapDrag.y = ev.clientY;
+      syncLocationInputs();
+      draw();
+      return;
+    }
     if (mode !== "sky" || !pointers.has(ev.pointerId)) return;
     pointers.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
 
@@ -1628,6 +1816,20 @@
   });
 
   function endPointer(ev) {
+    if (mode === "map") {
+      if (!mapDrag) return;
+      const rect = el.canvas.getBoundingClientRect();
+      const tapped = mapDrag.moved < 5;
+      mapDrag = null;
+      el.canvas.classList.remove("dragging");
+      if (tapped) {
+        const hit = mapPointToLatLon(ev.clientX - rect.left, ev.clientY - rect.top, rect.width, rect.height);
+        applyLocation(hit.lat, hit.lon, true);
+      } else {
+        applyLocation(state.lat, state.lon, true);
+      }
+      return;
+    }
     pointers.delete(ev.pointerId);
     if (pointers.size < 2) pinchStart = null;
     if (pointers.size === 0) {
@@ -1646,6 +1848,14 @@
   el.canvas.addEventListener(
     "wheel",
     (ev) => {
+      if (mode === "map") {
+        ev.preventDefault();
+        state.mapZoom = clamp(state.mapZoom + (ev.deltaY < 0 ? 1 : -1), 2, 19);
+        updateReadouts();
+        draw();
+        saveState();
+        return;
+      }
       if (mode !== "sky") return;
       ev.preventDefault();
       state.fov = clamp(state.fov * Math.exp(ev.deltaY * 0.0015), 10, 140);
@@ -1687,9 +1897,10 @@
       applyAutoTz();
     }
     syncTimeInputs();
+    setMode("sky");
     refresh(true);
     if (storedKey()) enableStreetView();
-    else setStatus("No Street View key yet — showing the plain sky view.");
+    else setStatus("No Street View key yet — sky and map views need no key.");
   }
 
   init();
