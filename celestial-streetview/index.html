@@ -53,13 +53,15 @@
         <label><span>Date</span>
           <input type="date" id="date" />
         </label>
-        <label><span>Time</span>
-          <input type="time" id="time" />
+        <label><span>Time (24 h)</span>
+          <input type="text" id="time" inputmode="numeric" maxlength="5" placeholder="HH:MM" pattern="([01][0-9]|2[0-3]):[0-5][0-9]" />
         </label>
       </div>
       <label class="stacked"><span>UTC offset on site</span>
         <select id="tz"></select>
       </label>
+      <label class="check-line"><input type="checkbox" id="auto-tz" checked /> <span>Auto offset (with DST)</span></label>
+      <p class="status-msg" id="tz-status"></p>
       <div class="button-row">
         <button type="button" class="chip" id="prev-day">&minus;1 d</button>
         <button type="button" class="chip" id="now-btn">Now</button>
@@ -79,6 +81,18 @@
         <button type="button" class="chip" data-visor="0.45">Med</button>
         <button type="button" class="chip" data-visor="0.65">High</button>
       </div>
+
+      <h2 class="spaced">&#9656; Calibration</h2>
+      <p class="hint">Street View reports a zoom level, never its field of view. If the bodies slide off the scenery as you pan, the focal length is off — correct it here.</p>
+      <div class="visor-row" id="basis-row" role="group" aria-label="Field of view basis">
+        <span class="visor-label">Basis</span>
+        <button type="button" class="chip" data-basis="width">W</button>
+        <button type="button" class="chip" data-basis="height">H</button>
+        <button type="button" class="chip" data-basis="diagonal">Diag</button>
+      </div>
+      <label class="stacked"><span>FOV trim <b id="trim-value">×1.00</b></span>
+        <input type="range" id="fov-trim" min="0.6" max="1.6" step="0.01" value="1" />
+      </label>
       <button type="button" class="secondary" id="key-btn">Street View imagery&hellip;</button>
       <p class="status-msg" id="status-msg"></p>
     </section>

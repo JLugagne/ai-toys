@@ -40,12 +40,84 @@
   }
 
   const PRESETS = [
-    { name: "Eiffel Tower", lat: 48.85837, lon: 2.294481, heading: 250, tz: 120 },
-    { name: "Times Square", lat: 40.758, lon: -73.9855, heading: 200, tz: -240 },
-    { name: "Shibuya", lat: 35.6595, lon: 139.7005, heading: 60, tz: 540 },
-    { name: "Sydney Opera", lat: -33.8568, lon: 151.2153, heading: 300, tz: 600 },
-    { name: "Tromsø", lat: 69.6496, lon: 18.956, heading: 180, tz: 120 },
+    { name: "Eiffel Tower", lat: 48.85837, lon: 2.294481, heading: 250, zone: "Europe/Paris" },
+    { name: "Times Square", lat: 40.758, lon: -73.9855, heading: 200, zone: "America/New_York" },
+    { name: "Shibuya", lat: 35.6595, lon: 139.7005, heading: 60, zone: "Asia/Tokyo" },
+    { name: "Sydney Opera", lat: -33.8568, lon: 151.2153, heading: 300, zone: "Australia/Sydney" },
+    { name: "Tromsø", lat: 69.6496, lon: 18.956, heading: 180, zone: "Europe/Oslo" },
   ];
+
+  /* Country code -> IANA zone. The browser already ships a full tz database
+     with every DST rule ever legislated, so the only thing missing is which
+     zone a point falls in. A country code (from the geocoder) resolves that for
+     all but a dozen wide countries, which are split by longitude below. */
+  const ZONE_BY_COUNTRY = ("ad:Europe/Andorra,ae:Asia/Dubai,af:Asia/Kabul,al:Europe/Tirane,am:Asia/Yerevan,ao:Africa/Luanda,ar:America/Argentina/Buenos_Aires," +
+    "at:Europe/Vienna,az:Asia/Baku,ba:Europe/Sarajevo,bd:Asia/Dhaka,be:Europe/Brussels,bf:Africa/Ouagadougou,bg:Europe/Sofia,bh:Asia/Bahrain,bi:Africa/Bujumbura," +
+    "bj:Africa/Porto-Novo,bo:America/La_Paz,bw:Africa/Gaborone,by:Europe/Minsk,bz:America/Belize,ch:Europe/Zurich,ci:Africa/Abidjan,cm:Africa/Douala,cn:Asia/Shanghai," +
+    "co:America/Bogota,cr:America/Costa_Rica,cu:America/Havana,cy:Asia/Nicosia,cz:Europe/Prague,de:Europe/Berlin,dk:Europe/Copenhagen,do:America/Santo_Domingo," +
+    "dz:Africa/Algiers,ee:Europe/Tallinn,eg:Africa/Cairo,er:Africa/Asmara,et:Africa/Addis_Ababa,fi:Europe/Helsinki,fj:Pacific/Fiji,fr:Europe/Paris,fo:Atlantic/Faroe," +
+    "gf:America/Cayenne,gi:Europe/Gibraltar,gp:America/Guadeloupe,li:Europe/Vaduz,mc:Europe/Monaco,mq:America/Martinique,nc:Pacific/Noumea,pf:Pacific/Tahiti," +
+    "re:Indian/Reunion,sm:Europe/San_Marino,va:Europe/Vatican,yt:Indian/Mayotte,gb:Europe/London,ge:Asia/Tbilisi," +
+    "gh:Africa/Accra,gr:Europe/Athens,gt:America/Guatemala,hk:Asia/Hong_Kong,hn:America/Tegucigalpa,hr:Europe/Zagreb,ht:America/Port-au-Prince,hu:Europe/Budapest," +
+    "ie:Europe/Dublin,il:Asia/Jerusalem,in:Asia/Kolkata,iq:Asia/Baghdad,ir:Asia/Tehran,is:Atlantic/Reykjavik,it:Europe/Rome,jm:America/Jamaica,jo:Asia/Amman," +
+    "jp:Asia/Tokyo,ke:Africa/Nairobi,kg:Asia/Bishkek,kh:Asia/Phnom_Penh,kp:Asia/Pyongyang,kr:Asia/Seoul,kw:Asia/Kuwait,la:Asia/Vientiane,lb:Asia/Beirut," +
+    "lk:Asia/Colombo,lt:Europe/Vilnius,lu:Europe/Luxembourg,lv:Europe/Riga,ly:Africa/Tripoli,ma:Africa/Casablanca,md:Europe/Chisinau,me:Europe/Podgorica," +
+    "mg:Indian/Antananarivo,mk:Europe/Skopje,mm:Asia/Yangon,mn:Asia/Ulaanbaatar,mt:Europe/Malta,mu:Indian/Mauritius,mw:Africa/Blantyre,my:Asia/Kuala_Lumpur," +
+    "mz:Africa/Maputo,na:Africa/Windhoek,ne:Africa/Niamey,ng:Africa/Lagos,ni:America/Managua,nl:Europe/Amsterdam,no:Europe/Oslo,np:Asia/Kathmandu,nz:Pacific/Auckland," +
+    "om:Asia/Muscat,pa:America/Panama,pe:America/Lima,ph:Asia/Manila,pk:Asia/Karachi,pl:Europe/Warsaw,pr:America/Puerto_Rico,py:America/Asuncion,qa:Asia/Qatar," +
+    "ro:Europe/Bucharest,rs:Europe/Belgrade,rw:Africa/Kigali,sa:Asia/Riyadh,sd:Africa/Khartoum,se:Europe/Stockholm,sg:Asia/Singapore,si:Europe/Ljubljana," +
+    "sk:Europe/Bratislava,sn:Africa/Dakar,so:Africa/Mogadishu,sr:America/Paramaribo,sv:America/El_Salvador,sy:Asia/Damascus,td:Africa/Ndjamena,tg:Africa/Lome," +
+    "th:Asia/Bangkok,tj:Asia/Dushanbe,tm:Asia/Ashgabat,tn:Africa/Tunis,tr:Europe/Istanbul,tt:America/Port_of_Spain,tw:Asia/Taipei,tz:Africa/Dar_es_Salaam," +
+    "ua:Europe/Kyiv,ug:Africa/Kampala,uy:America/Montevideo,uz:Asia/Tashkent,ve:America/Caracas,vn:Asia/Ho_Chi_Minh,ye:Asia/Aden,za:Africa/Johannesburg," +
+    "zm:Africa/Lusaka,zw:Africa/Harare").split(",").reduce((map, pair) => {
+    const [code, zone] = pair.split(":");
+    map[code] = zone;
+    return map;
+  }, {});
+
+  // Wide countries, split west to east: the first entry whose bound the
+  // longitude falls under wins.
+  const ZONE_BY_LONGITUDE = {
+    us: [[-150, "Pacific/Honolulu"], [-130, "America/Anchorage"], [-114, "America/Los_Angeles"], [-102, "America/Denver"], [-87, "America/Chicago"], [999, "America/New_York"]],
+    ca: [[-130, "America/Vancouver"], [-110, "America/Edmonton"], [-90, "America/Winnipeg"], [-68, "America/Toronto"], [999, "America/Halifax"]],
+    ru: [[30, "Europe/Moscow"], [50, "Europe/Samara"], [70, "Asia/Yekaterinburg"], [85, "Asia/Omsk"], [100, "Asia/Krasnoyarsk"], [115, "Asia/Irkutsk"], [130, "Asia/Yakutsk"], [145, "Asia/Vladivostok"], [999, "Asia/Kamchatka"]],
+    au: [[129, "Australia/Perth"], [141, "Australia/Adelaide"], [999, "Australia/Sydney"]],
+    br: [[-60, "America/Manaus"], [999, "America/Sao_Paulo"]],
+    mx: [[-110, "America/Tijuana"], [-102, "America/Chihuahua"], [999, "America/Mexico_City"]],
+    id: [[112, "Asia/Jakarta"], [128, "Asia/Makassar"], [999, "Asia/Jayapura"]],
+    kz: [[64, "Asia/Aqtobe"], [999, "Asia/Almaty"]],
+    cd: [[22, "Africa/Kinshasa"], [999, "Africa/Lubumbashi"]],
+    cl: [[-80, "Pacific/Easter"], [999, "America/Santiago"]],
+    es: [[-12, "Atlantic/Canary"], [999, "Europe/Madrid"]],
+    pt: [[-20, "Atlantic/Azores"], [999, "Europe/Lisbon"]],
+    ec: [[-85, "Pacific/Galapagos"], [999, "America/Guayaquil"]],
+    gl: [[-40, "America/Nuuk"], [999, "America/Scoresbysund"]],
+  };
+
+  function zoneFor(countryCode, lon) {
+    const code = String(countryCode || "").toLowerCase();
+    const split = ZONE_BY_LONGITUDE[code];
+    if (split) {
+      for (const [bound, zone] of split) {
+        if (lon < bound) return zone;
+      }
+    }
+    return ZONE_BY_COUNTRY[code] || null;
+  }
+
+  /* The browser's own tz database resolves DST exactly, for any date, without a
+     network call — we only ever needed the zone name. */
+  function offsetForZone(zone, utcMs) {
+    try {
+      const parts = new Intl.DateTimeFormat("en-US", { timeZone: zone, timeZoneName: "longOffset" }).formatToParts(new Date(utcMs));
+      const name = parts.find((p) => p.type === "timeZoneName");
+      const m = name && /GMT([+-])(\d{1,2})(?::(\d{2}))?/.exec(name.value);
+      if (!m) return null;
+      return (m[1] === "-" ? -1 : 1) * (Number(m[2]) * 60 + Number(m[3] || 0));
+    } catch (err) {
+      return null;
+    }
+  }
 
   const state = {
     lat: 48.85837,
@@ -61,6 +133,8 @@
     visor: 0.25,
     fovTrim: 1,
     fovBasis: "width",
+    autoTz: true,
+    zone: null,
   };
 
   const el = {
@@ -101,6 +175,8 @@
     searchStatus: document.getElementById("search-status"),
     panelsToggle: document.getElementById("panels-toggle"),
     visorRow: document.getElementById("visor-row"),
+    autoTz: document.getElementById("auto-tz"),
+    tzStatus: document.getElementById("tz-status"),
     basisRow: document.getElementById("basis-row"),
     trim: document.getElementById("fov-trim"),
     trimValue: document.getElementById("trim-value"),
@@ -651,9 +727,11 @@
     ctx.translate(x, y);
     ctx.rotate(angle);
 
+    // Near-opaque: the unlit limb genuinely blocks what is behind it, which is
+    // what makes the Moon read as passing in front of the Sun.
     ctx.beginPath();
     ctx.arc(0, 0, r, 0, Math.PI * 2);
-    ctx.fillStyle = "rgba(20,26,40,0.55)";
+    ctx.fillStyle = "rgba(14,20,32,0.92)";
     ctx.fill();
 
     const half = r * (1 - 2 * clamp(illum, 0, 1));
@@ -861,6 +939,33 @@
     saveState();
   }
 
+  /* Applies the site's real offset for the instant being shown, keeping the
+     wall-clock reading fixed — step across a DST boundary and the offset moves
+     under you, which is exactly what a clock on site would do. */
+  function applyAutoTz() {
+    if (!state.autoTz || !state.zone) {
+      el.tzStatus.textContent = state.autoTz ? "No timezone known for this point yet — set the offset by hand." : "";
+      return;
+    }
+    let offset = offsetForZone(state.zone, state.utcMs);
+    if (offset === null) {
+      el.tzStatus.textContent = "This browser cannot resolve " + state.zone + " — set the offset by hand.";
+      return;
+    }
+    // The instant depends on the offset we are solving for, so settle it once.
+    const l = localDate();
+    const parts = [l.getUTCFullYear(), l.getUTCMonth(), l.getUTCDate(), l.getUTCHours(), l.getUTCMinutes()];
+    const settled = offsetForZone(state.zone, Date.UTC(...parts) - offset * 60000);
+    if (settled !== null) offset = settled;
+
+    if (offset !== state.tz) {
+      state.tz = offset;
+      state.utcMs = Date.UTC(...parts) - offset * 60000;
+      el.tz.value = String(state.tz);
+    }
+    el.tzStatus.textContent = state.zone + " · " + fmtOffset(offset);
+  }
+
   function syncTimeInputs() {
     const l = localDate();
     el.date.value = l.getUTCFullYear() + "-" + pad(l.getUTCMonth() + 1) + "-" + pad(l.getUTCDate());
@@ -878,10 +983,48 @@
     }
   }
 
-  function applyLocation(lat, lon, fromPano) {
+  let zoneSeq = 0;
+  let zoneAnchor = null;
+
+  /* Reverse-geocodes only to learn the country, and only when the site has
+     moved far enough to plausibly change zone — walking down a street must not
+     fire a request per step, both for Nominatim's 1 req/s policy and because
+     the answer cannot have changed. */
+  async function resolveZone(lat, lon, countryCode) {
+    if (countryCode) {
+      state.zone = zoneFor(countryCode, lon);
+      zoneAnchor = { lat, lon };
+      return;
+    }
+    if (!state.autoTz) return;
+    if (zoneAnchor && Math.abs(zoneAnchor.lat - lat) < 0.25 && Math.abs(zoneAnchor.lon - lon) < 0.25) return;
+    const seq = ++zoneSeq;
+    try {
+      const url = "https://nominatim.openstreetmap.org/reverse?format=jsonv2&zoom=5&lat=" + lat + "&lon=" + lon;
+      const response = await fetch(url, { headers: { Accept: "application/json" } });
+      if (!response.ok) throw new Error("HTTP " + response.status);
+      const data = await response.json();
+      if (seq !== zoneSeq) return;
+      state.zone = zoneFor(data && data.address && data.address.country_code, lon);
+      zoneAnchor = { lat, lon };
+      applyAutoTz();
+      syncTimeInputs();
+      refresh(true);
+    } catch (err) {
+      if (seq !== zoneSeq) return;
+      el.tzStatus.textContent = "Timezone lookup needs the network — set the offset by hand.";
+    }
+  }
+
+  function applyLocation(lat, lon, fromPano, countryCode) {
     state.lat = clamp(lat, -90, 90);
     state.lon = clamp(lon, -180, 180);
     syncLocationInputs();
+    if (state.autoTz) {
+      resolveZone(state.lat, state.lon, countryCode);
+      applyAutoTz();
+      syncTimeInputs();
+    }
     refresh(true);
     if (!fromPano && mode === "street") showPanoramaAt(state.lat, state.lon);
   }
@@ -912,6 +1055,8 @@
           visor: state.visor,
           fovTrim: state.fovTrim,
           fovBasis: state.fovBasis,
+          autoTz: state.autoTz,
+          zone: state.zone,
         })
       );
     } catch (err) {
@@ -930,8 +1075,12 @@
     for (const k of ["lat", "lon", "tz", "heading", "pitch", "fov", "visor", "fovTrim"]) {
       if (typeof saved[k] === "number" && isFinite(saved[k])) state[k] = saved[k];
     }
-    for (const k of ["showPaths", "showCompass", "showLabels"]) {
+    for (const k of ["showPaths", "showCompass", "showLabels", "autoTz"]) {
       if (typeof saved[k] === "boolean") state[k] = saved[k];
+    }
+    if (typeof saved.zone === "string" && offsetForZone(saved.zone, Date.now()) !== null) {
+      state.zone = saved.zone;
+      zoneAnchor = { lat: state.lat, lon: state.lon };
     }
     if (["width", "height", "diagonal"].includes(saved.fovBasis)) state.fovBasis = saved.fovBasis;
   }
@@ -946,12 +1095,33 @@
 
   /* ---------- Street View ---------- */
 
+  /* Google publishes a zoom -> field-of-view table (0:180, 1:90, 2:45, 3:22.5)
+     but that table describes tile selection, not the camera the WebGL renderer
+     actually uses; it is only exact at zoom 1. Each zoom step halves
+     tan(fov/2), not fov, so the real curve is fov = 2*atan(2^(1-zoom)):
+
+         zoom | rendered | 180/2^zoom
+         -----+----------+-----------
+            0 |   126.9  |   180
+            1 |    90.0  |    90
+            2 |    53.1  |    45      <- documented value is 18% narrow
+            3 |    28.1  |    22.5
+            4 |    14.25 |    11.25   <- 27% narrow
+
+     Two independent empirical derivations agree on this within 0.4 deg:
+     PanoMarker measured the renderer directly (github.com/marmat/
+     google-maps-api-addons), and B. McPherson fitted it by comparing live
+     panoramas against Static API renders at known fov. Using the documented
+     table put every body too close to the view centre by a factor that grows
+     with the off-axis angle — which reads as the sky sliding over the scenery
+     as you pan, while staying pinned dead centre. Collapsed to a focal length
+     the relation is simply f = width * 2^zoom / 4. */
   function zoomToFov(zoom) {
-    return clamp(180 / Math.pow(2, zoom), 5, 175);
+    return clamp((2 * Math.atan(Math.pow(2, 1 - zoom))) / RAD, 5, 175);
   }
 
   function fovToZoom(fov) {
-    return clamp(Math.log2(180 / fov), 0, 5);
+    return clamp(1 - Math.log2(Math.tan((fov / 2) * RAD)), 0, 5);
   }
 
   function setMode(next) {
@@ -1130,10 +1300,11 @@
       btn.textContent = p.name;
       btn.dataset.index = String(i);
       btn.addEventListener("click", () => {
-        state.tz = p.tz;
-        el.tz.value = String(p.tz);
+        state.zone = p.zone;
+        zoneAnchor = { lat: p.lat, lon: p.lon };
         state.heading = p.heading;
         applyLocation(p.lat, p.lon, false);
+        applyAutoTz();
         syncTimeInputs();
       });
       el.presets.appendChild(btn);
@@ -1201,11 +1372,17 @@
     el.searchStatus.textContent = hit.display_name;
     const lat = parseFloat(hit.lat);
     const lon = parseFloat(hit.lon);
-    applyLocation(lat, lon, false);
-    const guess = guessOffsetFromLongitude(lon);
-    if (Math.abs(guess - state.tz) > 120) {
-      el.searchStatus.textContent =
-        hit.display_name + " — local time there is probably around " + fmtOffset(guess) + "; adjust the UTC offset if needed.";
+    // The search result already carries the country, so the zone costs no
+    // extra request.
+    applyLocation(lat, lon, false, hit.address && hit.address.country_code);
+    applyAutoTz();
+    syncTimeInputs();
+    if (!state.autoTz) {
+      const guess = guessOffsetFromLongitude(lon);
+      if (Math.abs(guess - state.tz) > 120) {
+        el.searchStatus.textContent =
+          hit.display_name + " — local time there is probably around " + fmtOffset(guess) + "; adjust the UTC offset if needed.";
+      }
     }
   }
 
@@ -1240,7 +1417,7 @@
     el.searchStatus.textContent = "Searching…";
     clearResults();
     try {
-      const url = NOMINATIM + "?format=jsonv2&limit=5&q=" + encodeURIComponent(query);
+      const url = NOMINATIM + "?format=jsonv2&addressdetails=1&limit=5&q=" + encodeURIComponent(query);
       const response = await fetch(url, { headers: { Accept: "application/json" } });
       if (!response.ok) throw new Error("HTTP " + response.status);
       const hits = await response.json();
@@ -1337,9 +1514,15 @@
 
   function onDateTimeChanged() {
     const [y, m, d] = el.date.value.split("-").map(Number);
-    const [hh, mm] = el.time.value.split(":").map(Number);
-    if (!y || !m || !d || !isFinite(hh) || !isFinite(mm)) return;
+    const time = /^\s*(\d{1,2})\s*[:hH.]?\s*(\d{2})?\s*$/.exec(el.time.value);
+    if (!y || !m || !d || !time) {
+      syncTimeInputs();
+      return;
+    }
+    const hh = clamp(Number(time[1]), 0, 23);
+    const mm = clamp(Number(time[2] || 0), 0, 59);
     setLocal(y, m - 1, d, hh, mm);
+    applyAutoTz();
     syncTimeInputs();
     refresh(true);
   }
@@ -1352,6 +1535,19 @@
     const parts = [l.getUTCFullYear(), l.getUTCMonth(), l.getUTCDate(), l.getUTCHours(), l.getUTCMinutes()];
     state.tz = Number(el.tz.value);
     setLocal(parts[0], parts[1], parts[2], parts[3], parts[4]);
+    if (state.autoTz) {
+      state.autoTz = false;
+      el.autoTz.checked = false;
+      el.tzStatus.textContent = "Auto offset off — you set this one by hand.";
+    }
+    syncTimeInputs();
+    refresh(true);
+  });
+
+  el.autoTz.addEventListener("change", () => {
+    state.autoTz = el.autoTz.checked;
+    if (state.autoTz && !state.zone) resolveZone(state.lat, state.lon);
+    applyAutoTz();
     syncTimeInputs();
     refresh(true);
   });
@@ -1365,6 +1561,7 @@
   function shiftDay(days) {
     const l = localDate();
     setLocal(l.getUTCFullYear(), l.getUTCMonth(), l.getUTCDate() + days, l.getUTCHours(), l.getUTCMinutes());
+    applyAutoTz();
     syncTimeInputs();
     refresh(true);
   }
@@ -1477,6 +1674,7 @@
     el.showPaths.checked = state.showPaths;
     el.showCompass.checked = state.showCompass;
     el.showLabels.checked = state.showLabels;
+    el.autoTz.checked = state.autoTz;
     applyVisor();
     el.trim.value = String(state.fovTrim);
     el.trimValue.textContent = "×" + state.fovTrim.toFixed(2);
@@ -1484,6 +1682,10 @@
       btn.setAttribute("aria-pressed", btn.dataset.basis === state.fovBasis ? "true" : "false");
     }
     syncLocationInputs();
+    if (state.autoTz) {
+      if (!state.zone) resolveZone(state.lat, state.lon);
+      applyAutoTz();
+    }
     syncTimeInputs();
     refresh(true);
     if (storedKey()) enableStreetView();
