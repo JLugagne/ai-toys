@@ -20,6 +20,8 @@
   // horizon: refraction (-34') plus semi-diameter (-16' sun / -15' moon).
   const SUN_HORIZON = -0.833;
   const MOON_HORIZON = -0.8;
+  // A planet is a point source, so only refraction lifts it over the horizon.
+  const POINT_HORIZON = -0.5667;
 
   function norm360(x) {
     const v = x % 360;
@@ -254,8 +256,149 @@
     };
   }
 
+  /* Orbital elements at epoch 2000 Jan 0.0 with their daily rates, from the
+     same Schlyter reference as the Sun and Moon above. Accuracy is roughly
+     1-2 arcmin for the inner planets and better than 5 arcmin for the outer
+     ones once the Jupiter/Saturn/Uranus perturbations below are applied —
+     far finer than a panorama overlay can express. */
+  const PLANETS = {
+    mercury: { N: [48.3313, 3.24587e-5], i: [7.0047, 5.0e-8], w: [29.1241, 1.01444e-5], a: [0.387098, 0], e: [0.205635, 5.59e-10], M: [168.6562, 4.0923344368], radiusKm: 2439.7, mag: [-0.36, 0.027, 2.2e-13, 6] },
+    venus: { N: [76.6799, 2.4659e-5], i: [3.3946, 2.75e-8], w: [54.891, 1.38374e-5], a: [0.72333, 0], e: [0.006773, -1.302e-9], M: [48.0052, 1.6021302244], radiusKm: 6051.8, mag: [-4.34, 0.013, 4.2e-7, 3] },
+    mars: { N: [49.5574, 2.11081e-5], i: [1.8497, -1.78e-8], w: [286.5016, 2.92961e-5], a: [1.523688, 0], e: [0.093405, 2.516e-9], M: [18.6021, 0.5240207766], radiusKm: 3389.5, mag: [-1.51, 0.016, 0, 1] },
+    jupiter: { N: [100.4542, 2.76854e-5], i: [1.303, -1.557e-7], w: [273.8777, 1.64505e-5], a: [5.20256, 0], e: [0.048498, 4.469e-9], M: [19.895, 0.0830853001], radiusKm: 69911, mag: [-9.25, 0.014, 0, 1] },
+    saturn: { N: [113.6634, 2.3898e-5], i: [2.4886, -1.081e-7], w: [339.3939, 2.97661e-5], a: [9.55475, 0], e: [0.055546, -9.499e-9], M: [316.967, 0.0334442282], radiusKm: 58232, mag: [-9.0, 0.044, 0, 1] },
+    uranus: { N: [74.0005, 1.3978e-5], i: [0.7733, 1.9e-8], w: [96.6612, 3.0565e-5], a: [19.18171, -1.55e-8], e: [0.047318, 7.45e-9], M: [142.5905, 0.011725806], radiusKm: 25362, mag: [-7.15, 0.001, 0, 1] },
+    neptune: { N: [131.7806, 3.0173e-5], i: [1.77, -2.55e-7], w: [272.8461, -6.027e-6], a: [30.05826, 3.313e-8], e: [0.008606, 2.15e-9], M: [260.2471, 0.005995147], radiusKm: 24622, mag: [-6.9, 0.001, 0, 1] },
+  };
+
+  const AU_KM_EXACT = AU_KM;
+
+  function elementsAt(p, d) {
+    return {
+      N: norm360(p.N[0] + p.N[1] * d),
+      i: p.i[0] + p.i[1] * d,
+      w: norm360(p.w[0] + p.w[1] * d),
+      a: p.a[0] + p.a[1] * d,
+      e: p.e[0] + p.e[1] * d,
+      M: norm360(p.M[0] + p.M[1] * d),
+    };
+  }
+
+  function heliocentric(el) {
+    let E = el.M + el.e * DEG * sin(el.M) * (1 + el.e * cos(el.M));
+    for (let k = 0; k < 10; k++) {
+      const dE = (E - el.e * DEG * sin(E) - el.M) / (1 - el.e * cos(E));
+      E -= dE;
+      if (Math.abs(dE) < 1e-10) break;
+    }
+    const xv = el.a * (cos(E) - el.e);
+    const yv = el.a * Math.sqrt(1 - el.e * el.e) * sin(E);
+    const v = atan2(yv, xv);
+    const r = Math.hypot(xv, yv);
+    const u = v + el.w;
+    return {
+      lon: norm360(atan2(sin(el.N) * cos(u) + cos(el.N) * sin(u) * cos(el.i), cos(el.N) * cos(u) - sin(el.N) * sin(u) * cos(el.i))),
+      lat: asin(sin(u) * sin(el.i)),
+      r,
+    };
+  }
+
+  // Jupiter, Saturn and Uranus are pulled around by each other by up to half a
+  // degree; without these the giants drift visibly.
+  function giantPerturbations(name, d, out) {
+    const Mj = norm360(PLANETS.jupiter.M[0] + PLANETS.jupiter.M[1] * d);
+    const Ms = norm360(PLANETS.saturn.M[0] + PLANETS.saturn.M[1] * d);
+    const Mu = norm360(PLANETS.uranus.M[0] + PLANETS.uranus.M[1] * d);
+    if (name === "jupiter") {
+      out.lon +=
+        -0.332 * sin(2 * Mj - 5 * Ms - 67.6) -
+        0.056 * sin(2 * Mj - 2 * Ms + 21) +
+        0.042 * sin(3 * Mj - 5 * Ms + 21) -
+        0.036 * sin(Mj - 2 * Ms) +
+        0.022 * cos(Mj - Ms) +
+        0.023 * sin(2 * Mj - 3 * Ms + 52) -
+        0.016 * sin(Mj - 5 * Ms - 69);
+    } else if (name === "saturn") {
+      out.lon +=
+        0.812 * sin(2 * Mj - 5 * Ms - 67.6) -
+        0.229 * cos(2 * Mj - 4 * Ms - 2) +
+        0.119 * sin(Mj - 2 * Ms - 3) +
+        0.046 * sin(2 * Mj - 6 * Ms - 69) +
+        0.014 * sin(Mj - 3 * Ms + 32);
+      out.lat += -0.02 * cos(2 * Mj - 4 * Ms - 2) + 0.018 * sin(2 * Mj - 6 * Ms - 49);
+    } else if (name === "uranus") {
+      out.lon += 0.04 * sin(Ms - 2 * Mu + 6) + 0.035 * sin(Ms - 3 * Mu + 33) - 0.015 * sin(Mj - Mu + 20);
+    }
+  }
+
+  function planetMagnitude(name, r, R, phaseAngle, lon, lat, d) {
+    const [base, k1, k2, power] = PLANETS[name].mag;
+    let m = base + 5 * Math.log10(r * R) + k1 * phaseAngle + k2 * Math.pow(phaseAngle, power);
+    if (name === "saturn") {
+      // The rings dominate Saturn's brightness, swinging it by about 1 mag
+      // between edge-on and wide open.
+      const ir = 28.06;
+      const Nr = 169.51 + 3.82e-5 * d;
+      const B = asin(sin(lat) * cos(ir) - cos(lat) * sin(ir) * sin(lon - Nr));
+      m += -2.6 * sin(Math.abs(B)) + 1.2 * Math.pow(sin(B), 2);
+    }
+    return m;
+  }
+
+  function planet(name, date, lat, lon) {
+    const d = dayNumber(date);
+    const ecl = obliquity(d);
+    const s = sunEcliptic(d);
+    const helio = heliocentric(elementsAt(PLANETS[name], d));
+    giantPerturbations(name, d, helio);
+
+    const xh = helio.r * cos(helio.lat) * cos(helio.lon);
+    const yh = helio.r * cos(helio.lat) * sin(helio.lon);
+    const zh = helio.r * sin(helio.lat);
+    const xs = s.dist * cos(s.lon);
+    const ys = s.dist * sin(s.lon);
+    const xg = xh + xs;
+    const yg = yh + ys;
+    const zg = zh;
+
+    const geoLon = norm360(atan2(yg, xg));
+    const geoLat = atan2(zg, Math.hypot(xg, yg));
+    const R = Math.hypot(xg, yg, zg);
+
+    const eq = eclipticToEquatorial(geoLon, geoLat, ecl);
+    const hz = equatorialToHorizontal(eq.ra, eq.dec, lat, siderealTime(d, date, lon));
+    const phaseAngle = acos((helio.r * helio.r + R * R - s.dist * s.dist) / (2 * helio.r * R));
+    const distKm = R * AU_KM_EXACT;
+
+    return {
+      body: name,
+      az: hz.az,
+      alt: hz.alt,
+      apparentAlt: hz.alt + refraction(hz.alt),
+      hourAngle: hz.hourAngle,
+      ra: eq.ra,
+      dec: eq.dec,
+      eclipticLon: geoLon,
+      eclipticLat: geoLat,
+      distanceKm: distKm,
+      distanceAu: R,
+      heliocentricAu: helio.r,
+      heliocentricLon: helio.lon,
+      angularDiameter: 2 * Math.atan(PLANETS[name].radiusKm / distKm) * DEG,
+      illuminated: (1 + cos(phaseAngle)) / 2,
+      phaseAngle,
+      elongation: acos(cos(s.lon - geoLon) * cos(geoLat)),
+      magnitude: planetMagnitude(name, helio.r, R, phaseAngle, geoLon, geoLat, d),
+      horizonAlt: POINT_HORIZON,
+      up: hz.alt > POINT_HORIZON,
+    };
+  }
+
   function positionOf(body, date, lat, lon) {
-    return body === "moon" ? moon(date, lat, lon) : sun(date, lat, lon);
+    if (body === "moon") return moon(date, lat, lon);
+    if (body === "sun") return sun(date, lat, lon);
+    if (PLANETS[body]) return planet(body, date, lat, lon);
+    throw new Error("unknown body: " + body);
   }
 
   /* Scans [startMs, startMs + spanMs] for horizon crossings of `body`.
@@ -331,6 +474,8 @@
   global.Astro = {
     sun,
     moon,
+    planet,
+    planetNames: Object.keys(PLANETS),
     positionOf,
     riseSet,
     refraction,

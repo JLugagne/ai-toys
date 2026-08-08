@@ -24,6 +24,39 @@
   const HUD_MONO = "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
   // Keeps the canvas chrome clear of the DOM header bar; must match --hud-top.
   const HUD_TOP = 46;
+  const PLANET_COLORS = {
+    mercury: "#c3b8a8",
+    venus: "#f6e7c2",
+    mars: "#e2724a",
+    jupiter: "#e6c79b",
+    saturn: "#ead9a6",
+    uranus: "#9fe0e8",
+    neptune: "#93a9ff",
+  };
+
+  const BODY_ORDER = ["sun", "moon", "mercury", "venus", "mars", "jupiter", "saturn", "uranus", "neptune"];
+  const BODY_LABELS = {
+    sun: "Sol",
+    moon: "Luna",
+    mercury: "Mercury",
+    venus: "Venus",
+    mars: "Mars",
+    jupiter: "Jupiter",
+    saturn: "Saturn",
+    uranus: "Uranus",
+    neptune: "Neptune",
+  };
+
+  function bodyColor(key) {
+    if (key === "sun") return SUN_COLOR;
+    if (key === "moon") return MOON_COLOR;
+    return PLANET_COLORS[key] || HUD_INK;
+  }
+
+  function enabledBodies() {
+    return BODY_ORDER.filter((key) => state.bodies[key]);
+  }
+
   function readHudTokens() {
     if (typeof getComputedStyle !== "function") return;
     const style = getComputedStyle(document.body);
@@ -136,6 +169,7 @@
     autoTz: true,
     zone: null,
     mapZoom: 17,
+    bodies: { sun: true, moon: true },
   };
 
   const el = {
@@ -176,6 +210,7 @@
     searchStatus: document.getElementById("search-status"),
     panelsToggle: document.getElementById("panels-toggle"),
     modeRow: document.getElementById("mode-row"),
+    bodyList: document.getElementById("body-list"),
     visorRow: document.getElementById("visor-row"),
     autoTz: document.getElementById("auto-tz"),
     tzStatus: document.getElementById("tz-status"),
@@ -306,30 +341,43 @@
 
   /* ---------- astronomy state ---------- */
 
+  // Only what is switched on gets sampled: a full day of tracks for nine bodies
+  // is nine times the work, and most of it would never be drawn.
+  function tracked() {
+    const list = enabledBodies();
+    // The Sun is always computed even when hidden — the Moon's terminator and
+    // every phase angle are measured from it.
+    if (!list.includes("sun")) list.push("sun");
+    return list;
+  }
+
   function recomputeDay() {
     const start = dayStartMs();
-    const samples = { sun: [], moon: [] };
+    const bodies = tracked();
+    const samples = {};
+    for (const body of bodies) samples[body] = [];
     for (let m = 0; m <= 1440; m += PATH_STEP_MIN) {
       const ms = start + m * 60000;
       const at = new Date(ms);
-      for (const body of ["sun", "moon"]) {
+      for (const body of bodies) {
         const p = Astro.positionOf(body, at, state.lat, state.lon);
         samples[body].push({ ms, minute: m, az: p.az, alt: p.apparentAlt, up: p.up });
       }
     }
     paths = samples;
-    events = {
-      sun: Astro.riseSet("sun", start, 86400000, state.lat, state.lon),
-      moon: Astro.riseSet("moon", start, 86400000, state.lat, state.lon),
-    };
+    events = {};
+    for (const body of bodies) {
+      events[body] = Astro.riseSet(body, start, 86400000, state.lat, state.lon);
+    }
   }
 
   function recomputeNow() {
     const at = new Date(state.utcMs);
-    current = {
-      sun: Astro.sun(at, state.lat, state.lon),
-      moon: Astro.moon(at, state.lat, state.lon),
-    };
+    current = {};
+    for (const body of tracked()) {
+      current[body] = Astro.positionOf(body, at, state.lat, state.lon);
+    }
+    if (!current.moon) current.moon = Astro.moon(at, state.lat, state.lon);
   }
 
   /* ---------- canvas ---------- */
@@ -508,8 +556,10 @@
     ctx.fill();
     ctx.restore();
 
-    if (current.sun.up) bearingRay(current.sun.az, SUN_COLOR, [9, 4]);
-    if (current.moon.up) bearingRay(current.moon.az, MOON_COLOR, [3, 5]);
+    for (const key of enabledBodies()) {
+      const pos = current[key];
+      if (pos && pos.up) bearingRay(pos.az, bodyColor(key), key === "sun" ? [9, 4] : [3, 5]);
+    }
 
     ctx.beginPath();
     ctx.moveTo(cx, cy);
@@ -522,8 +572,18 @@
     inkRect(cx, cy, 3, HUD_INK);
 
     hudFont(10, 700);
-    if (current.sun.up) hudLabel("SOL " + current.sun.az.toFixed(0) + "°", cx + Math.cos((current.sun.az - 90) * RAD) * (rayLen + 22), cy + Math.sin((current.sun.az - 90) * RAD) * (rayLen + 22), SUN_COLOR, "center");
-    if (current.moon.up) hudLabel("LUNA " + current.moon.az.toFixed(0) + "°", cx + Math.cos((current.moon.az - 90) * RAD) * (rayLen + 22), cy + Math.sin((current.moon.az - 90) * RAD) * (rayLen + 22), MOON_COLOR, "center");
+    for (const key of enabledBodies()) {
+      const pos = current[key];
+      if (!pos || !pos.up) continue;
+      const a = (pos.az - 90) * RAD;
+      hudLabel(
+        (BODY_LABELS[key] || key).toUpperCase() + " " + pos.az.toFixed(0) + "°",
+        clamp(cx + Math.cos(a) * (rayLen + 22), 60, w - 60),
+        clamp(cy + Math.sin(a) * (rayLen + 22), 40, h - 30),
+        bodyColor(key),
+        "center"
+      );
+    }
 
     hudFont(9, 600);
     hudLabel("N", cx, cy - rayLen - 34, HUD_DIM, "center");
@@ -937,15 +997,45 @@
     }
   }
 
+  // A planet is a point to the eye — Jupiter at its best spans 50 arcsec, well
+  // under a pixel here — so it gets a legibility floor scaled by apparent
+  // magnitude rather than its true angular size.
+  function drawPlanetDisc(x, y, r, color) {
+    const glow = ctx.createRadialGradient(x, y, r * 0.4, x, y, r * 4.5);
+    glow.addColorStop(0, "rgba(255,255,255,0.3)");
+    glow.addColorStop(1, "rgba(255,255,255,0)");
+    ctx.fillStyle = glow;
+    ctx.beginPath();
+    ctx.arc(x, y, r * 4.5, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    inkStroke(HUD_SHADE, 1);
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.fillStyle = color;
+    ctx.fill();
+  }
+
+  function planetRadius(magnitude) {
+    return clamp(7 - magnitude * 0.9, 3.5, 11);
+  }
+
   function drawBody(cam, pos, w, h) {
-    const isSun = pos.body === "sun";
-    const label = isSun ? "Sun" : "Moon";
-    const color = isSun ? SUN_COLOR : MOON_COLOR;
     if (!pos.up) return;
+    const key = pos.body;
+    const isSun = key === "sun";
+    const isMoon = key === "moon";
+    const label = BODY_LABELS[key] || key;
+    const color = bodyColor(key);
 
     const v = vecOf(pos.az, pos.apparentAlt);
     const p = project(cam, v);
-    const r = Math.max(10, cam.f * Math.tan((pos.angularDiameter / 2) * RAD));
+    const r =
+      isSun || isMoon
+        ? Math.max(10, cam.f * Math.tan((pos.angularDiameter / 2) * RAD))
+        : planetRadius(pos.magnitude);
     if (!p || p.x < -r || p.x > w + r || p.y < -r || p.y > h + r) {
       drawOffscreenMarker(cam, pos, label, color, w, h);
       return;
@@ -953,20 +1043,23 @@
 
     if (isSun) {
       drawSunDisc(p.x, p.y, r);
-    } else {
+    } else if (isMoon) {
       const sunVec = vecOf(current.sun.az, current.sun.apparentAlt);
       drawMoonDisc(p.x, p.y, r, pos.illuminated, tangentAngle(cam, v, sunVec, p));
+    } else {
+      drawPlanetDisc(p.x, p.y, r, color);
     }
 
-    drawTargetBracket(p.x, p.y, Math.max(r * 2.1, 22), color);
+    drawTargetBracket(p.x, p.y, Math.max(r * 2.1, 18), color);
 
     if (state.showLabels) {
       drawCallout(
         p.x,
         p.y,
-        Math.max(r * 2.1, 22),
-        isSun ? "SOL" : "LUNA",
-        (pos.alt >= 0 ? "+" : "") + pos.alt.toFixed(1) + "° / " + pos.az.toFixed(1) + "° " + compassName(pos.az),
+        Math.max(r * 2.1, 18),
+        label.toUpperCase(),
+        (pos.alt >= 0 ? "+" : "") + pos.alt.toFixed(1) + "° / " + pos.az.toFixed(1) + "° " + compassName(pos.az) +
+          (isSun || isMoon ? "" : "  m" + pos.magnitude.toFixed(1)),
         color,
         w,
         h
@@ -994,15 +1087,16 @@
       drawPitchLadder(cam, w, h);
       drawHorizon(cam, w, h);
     }
+    const shown = enabledBodies().filter((key) => current[key]);
     if (state.showPaths && paths) {
-      drawPath(cam, paths.moon, MOON_COLOR, w, h);
-      drawPath(cam, paths.sun, SUN_COLOR, w, h);
+      for (const key of shown) {
+        if (paths[key]) drawPath(cam, paths[key], bodyColor(key), w, h);
+      }
     }
     // Painter's algorithm on real distance: the Moon is ~390x closer than the
     // Sun, so it occludes it — which is exactly what a solar eclipse looks like.
-    // Sorting rather than hard-coding the pair keeps this right for any body
-    // added later.
-    for (const pos of [current.sun, current.moon].sort((a, b) => b.distanceKm - a.distanceKm)) {
+    // Sorting rather than hard-coding the pair keeps this right for the planets.
+    for (const pos of shown.map((key) => current[key]).sort((a, b) => b.distanceKm - a.distanceKm)) {
       drawBody(cam, pos, w, h);
     }
     if (state.showCompass) {
@@ -1031,8 +1125,27 @@
     return parts.join(" · ");
   }
 
+  function updateBodyList() {
+    for (const key of BODY_ORDER) {
+      const row = bodyRows[key];
+      if (!row) continue;
+      const pos = current && current[key];
+      row.box.checked = !!state.bodies[key];
+      if (!state.bodies[key] || !pos) {
+        row.value.textContent = "";
+        continue;
+      }
+      row.value.textContent = pos.up
+        ? (pos.alt >= 0 ? "+" : "") + pos.alt.toFixed(0) + "° " + pos.az.toFixed(0) + "° " + compassName(pos.az) +
+          (pos.magnitude === undefined ? "" : " m" + pos.magnitude.toFixed(1))
+        : "below";
+      row.item.classList.toggle("is-up", pos.up);
+    }
+  }
+
   function updateReadouts() {
     if (!current || !events) return;
+    updateBodyList();
     el.sunPosition.textContent = describeAltAz(current.sun);
     el.sunTimes.textContent = describeEvents(events.sun, "Rise", "Set");
     el.moonPosition.textContent = describeAltAz(current.moon);
@@ -1043,7 +1156,7 @@
       "% lit · " +
       Math.round(current.moon.distanceKm).toLocaleString("en-US") +
       " km";
-    el.moonTimes.textContent = describeEvents(events.moon, "Rise", "Set");
+    el.moonTimes.textContent = events.moon ? describeEvents(events.moon, "Rise", "Set") : "—";
 
     const l = localDate();
     el.spec.textContent =
@@ -1203,6 +1316,7 @@
           autoTz: state.autoTz,
           zone: state.zone,
           mapZoom: state.mapZoom,
+          bodies: state.bodies,
         })
       );
     } catch (err) {
@@ -1229,6 +1343,46 @@
       zoneAnchor = { lat: state.lat, lon: state.lon };
     }
     if (["width", "height", "diagonal"].includes(saved.fovBasis)) state.fovBasis = saved.fovBasis;
+    if (saved.bodies && typeof saved.bodies === "object") {
+      const restored = {};
+      for (const key of BODY_ORDER) if (saved.bodies[key] === true) restored[key] = true;
+      if (Object.keys(restored).length) state.bodies = restored;
+    }
+  }
+
+  /* Accepts a key handed in by the link — ?apikey=… or #apikey=… — stores it,
+     then rewrites the address bar without it. Leaving it in the URL would put
+     the key in the history, in bookmarks, in autocomplete, and above all in the
+     clipboard the moment the link is shared. The hash form never reaches a
+     server at all, so it is the safer of the two. */
+  function consumeKeyFromUrl() {
+    let query;
+    let hash;
+    try {
+      query = new URLSearchParams(location.search);
+      hash = new URLSearchParams(location.hash.replace(/^#/, ""));
+    } catch (err) {
+      return "";
+    }
+    const key = (hash.get("apikey") || query.get("apikey") || "").trim();
+    if (!key) return "";
+
+    try {
+      localStorage.setItem(KEY_STORE, key);
+    } catch (err) {
+      /* storage refused; the key still applies for this page load */
+    }
+
+    query.delete("apikey");
+    hash.delete("apikey");
+    try {
+      const q = query.toString();
+      const h = hash.toString();
+      history.replaceState(null, "", location.pathname + (q ? "?" + q : "") + (h ? "#" + h : ""));
+    } catch (err) {
+      /* file:// or a browser that refuses; the key is stored either way */
+    }
+    return key;
   }
 
   function storedKey() {
@@ -1445,6 +1599,40 @@
   });
 
   /* ---------- inputs ---------- */
+
+  const bodyRows = {};
+
+  function buildBodyList() {
+    for (const key of BODY_ORDER) {
+      const item = document.createElement("li");
+      item.className = "body-item";
+      const label = document.createElement("label");
+      const box = document.createElement("input");
+      box.type = "checkbox";
+      box.checked = !!state.bodies[key];
+      const swatch = document.createElement("span");
+      swatch.className = "body-dot";
+      swatch.style.background = bodyColor(key);
+      const name = document.createElement("span");
+      name.className = "body-name";
+      name.textContent = BODY_LABELS[key];
+      const value = document.createElement("span");
+      value.className = "body-value";
+      label.appendChild(box);
+      label.appendChild(swatch);
+      label.appendChild(name);
+      label.appendChild(value);
+      item.appendChild(label);
+      el.bodyList.appendChild(item);
+      bodyRows[key] = { item, box, value };
+      box.addEventListener("change", () => {
+        state.bodies[key] = box.checked;
+        saveState();
+        // A newly enabled body has no track or rise/set yet.
+        refresh(true);
+      });
+    }
+  }
 
   function buildPresets() {
     PRESETS.forEach((p, i) => {
@@ -1879,6 +2067,7 @@
     readHudTokens();
     buildTimezones();
     buildPresets();
+    buildBodyList();
     loadState();
     el.tz.value = String(state.tz);
     el.showPaths.checked = state.showPaths;
@@ -1899,8 +2088,15 @@
     syncTimeInputs();
     setMode("sky");
     refresh(true);
-    if (storedKey()) enableStreetView();
-    else setStatus("No Street View key yet — sky and map views need no key.");
+    const fromUrl = consumeKeyFromUrl();
+    if (fromUrl) {
+      enableStreetView();
+      setStatus("API key taken from the link, saved in this browser and stripped from the address bar.");
+    } else if (storedKey()) {
+      enableStreetView();
+    } else {
+      setStatus("No Street View key yet — sky and map views need no key.");
+    }
   }
 
   init();

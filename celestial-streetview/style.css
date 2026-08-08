@@ -643,6 +643,81 @@ button.secondary:hover {
   scale: 1;
 }
 
+/* --- Body selector doubles as a live readout -------------------------- */
+
+.body-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.body-item label {
+  display: grid;
+  grid-template-columns: auto auto 1fr auto;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.12rem 0.15rem;
+  font-size: 0.62rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--hud-ink-dim);
+  cursor: pointer;
+}
+
+.body-item label:hover {
+  background: oklch(0.8 0.12 var(--hud-hue) / 0.08);
+  color: var(--hud-ink);
+}
+
+.body-item input[type="checkbox"] {
+  appearance: none;
+  inline-size: 11px;
+  block-size: 11px;
+  margin: 0;
+  box-shadow: inset 0 0 0 1px var(--hud-line);
+  display: grid;
+  place-content: center;
+  cursor: pointer;
+}
+
+.body-item input[type="checkbox"]::before {
+  content: "";
+  inline-size: 5px;
+  block-size: 5px;
+  background: var(--hud-ink);
+  clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%);
+  scale: 0;
+  transition: scale 0.14s ease;
+}
+
+.body-item input[type="checkbox"]:checked {
+  box-shadow: inset 0 0 0 1px var(--hud-ink);
+}
+
+.body-item input[type="checkbox"]:checked::before {
+  scale: 1;
+}
+
+.body-dot {
+  inline-size: 7px;
+  block-size: 7px;
+  border-radius: 50%;
+}
+
+.body-value {
+  font-variant-numeric: tabular-nums;
+  font-size: 0.58rem;
+  color: var(--hud-ink-dim);
+  white-space: nowrap;
+}
+
+.body-item.is-up .body-value {
+  color: var(--hud-ink-strong);
+}
+
 /* --- Footer: readouts + time scrub ------------------------------------ */
 
 .hud-footer {

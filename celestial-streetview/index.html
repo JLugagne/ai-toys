@@ -3,6 +3,8 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <!-- Never let a key passed as ?apikey= reach a third party in a Referer. -->
+  <meta name="referrer" content="strict-origin" />
   <title>Celestial Bodies in Street View — AI Toys</title>
   <link rel="stylesheet" href="../assets/style.css" />
   <link rel="stylesheet" href="style.css" />
@@ -73,6 +75,9 @@
         <button type="button" class="chip" id="next-day">+1 d</button>
       </div>
 
+      <h2 class="spaced">&#9656; Bodies</h2>
+      <ul class="body-list" id="body-list"></ul>
+
       <h2 class="spaced">&#9656; Overlay</h2>
       <div class="check-list">
         <label class="check-line"><input type="checkbox" id="show-compass" checked /> <span>Reticle, ladder &amp; bearing tape</span></label>
@@ -135,6 +140,7 @@
         <li>Restrict the key to the sites you use it from (HTTP referrer) so nobody else can spend it.</li>
       </ol>
       <p class="privacy"><strong>Where the key goes:</strong> it is kept in this browser&rsquo;s local storage and sent only to Google when the panorama loads. This page has no backend and never transmits it anywhere else. Clear it any time with <em>Remove key</em>.</p>
+      <p class="privacy"><strong>Preloading it from a link:</strong> open <code>?apikey=YOUR_KEY</code> (or the safer <code>#apikey=YOUR_KEY</code>, which never reaches any server) and the key is saved here, then wiped from the address bar so it cannot be bookmarked or copied out by accident. Treat such a link as the key itself &mdash; anyone you send it to gets your quota. Restrict the key by HTTP referrer first.</p>
       <label class="stacked"><span>API key</span>
         <input type="text" id="key-input" autocomplete="off" spellcheck="false" placeholder="AIza…" />
       </label>
