@@ -59,6 +59,8 @@
     showCompass: true,
     showLabels: true,
     visor: 0.25,
+    fovTrim: 1,
+    fovBasis: "width",
   };
 
   const el = {
@@ -99,6 +101,9 @@
     searchStatus: document.getElementById("search-status"),
     panelsToggle: document.getElementById("panels-toggle"),
     visorRow: document.getElementById("visor-row"),
+    basisRow: document.getElementById("basis-row"),
+    trim: document.getElementById("fov-trim"),
+    trimValue: document.getElementById("trim-value"),
   };
 
   const ctx = el.canvas.getContext("2d");
@@ -165,7 +170,23 @@
 
   function makeCamera(w, h) {
     const fov = clamp(state.fov, 5, 175);
-    const f = w / 2 / Math.tan((fov / 2) * RAD);
+    // Street View exposes a zoom level, not a field of view; fov = 180/2^zoom is
+    // the community-derived relation, and it is the one number in this pipeline
+    // that no reference confirms. A wrong focal length is invisible at the view
+    // centre and grows towards the edges, so it reads as bodies sliding off the
+    // scenery when you pan. The trim lets you settle it by eye; it applies only
+    // over real imagery, since the sky view sets its own field of view exactly.
+    // Google reports a zoom level but never the field of view it renders, and
+    // there is no metadata for it: StreetViewTileData carries centerHeading,
+    // worldSize and tile URLs, none of which describe the viewport camera. So
+    // the basis (which screen dimension 180/2^zoom refers to) is a choice, not
+    // a fact. Pick the one that holds still when you pan; the trim then takes
+    // out any residual. Both apply over imagery only — the sky view sets its
+    // own field of view exactly and needs no correction.
+    const trim = mode === "street" ? clamp(state.fovTrim, 0.5, 2) : 1;
+    const basis = mode === "street" ? state.fovBasis : "width";
+    const ref = basis === "height" ? h : basis === "diagonal" ? Math.hypot(w, h) : w;
+    const f = (trim * ref) / 2 / Math.tan((fov / 2) * RAD);
     const hd = state.heading * RAD;
     const p = state.pitch * RAD;
     return {
@@ -755,8 +776,13 @@
       drawPath(cam, paths.moon, MOON_COLOR, w, h);
       drawPath(cam, paths.sun, SUN_COLOR, w, h);
     }
-    drawBody(cam, current.moon, w, h);
-    drawBody(cam, current.sun, w, h);
+    // Painter's algorithm on real distance: the Moon is ~390x closer than the
+    // Sun, so it occludes it — which is exactly what a solar eclipse looks like.
+    // Sorting rather than hard-coding the pair keeps this right for any body
+    // added later.
+    for (const pos of [current.sun, current.moon].sort((a, b) => b.distanceKm - a.distanceKm)) {
+      drawBody(cam, pos, w, h);
+    }
     if (state.showCompass) {
       drawBearingTape(cam, w, h);
       drawReticle(w, h);
@@ -884,6 +910,8 @@
           showCompass: state.showCompass,
           showLabels: state.showLabels,
           visor: state.visor,
+          fovTrim: state.fovTrim,
+          fovBasis: state.fovBasis,
         })
       );
     } catch (err) {
@@ -899,12 +927,13 @@
       saved = null;
     }
     if (!saved) return;
-    for (const k of ["lat", "lon", "tz", "heading", "pitch", "fov", "visor"]) {
+    for (const k of ["lat", "lon", "tz", "heading", "pitch", "fov", "visor", "fovTrim"]) {
       if (typeof saved[k] === "number" && isFinite(saved[k])) state[k] = saved[k];
     }
     for (const k of ["showPaths", "showCompass", "showLabels"]) {
       if (typeof saved[k] === "boolean") state[k] = saved[k];
     }
+    if (["width", "height", "diagonal"].includes(saved.fovBasis)) state.fovBasis = saved.fovBasis;
   }
 
   function storedKey() {
@@ -1250,6 +1279,30 @@
     }
   }
 
+  function applyCalibration() {
+    el.trimValue.textContent = "×" + state.fovTrim.toFixed(2);
+    el.trim.value = String(state.fovTrim);
+    for (const btn of el.basisRow.querySelectorAll("[data-basis]")) {
+      btn.setAttribute("aria-pressed", btn.dataset.basis === state.fovBasis ? "true" : "false");
+    }
+    updateReadouts();
+    draw();
+  }
+
+  el.basisRow.addEventListener("click", (ev) => {
+    const btn = ev.target.closest ? ev.target.closest("[data-basis]") : null;
+    if (!btn) return;
+    state.fovBasis = btn.dataset.basis;
+    applyCalibration();
+    saveState();
+  });
+
+  el.trim.addEventListener("input", () => {
+    state.fovTrim = Number(el.trim.value);
+    applyCalibration();
+    saveState();
+  });
+
   el.visorRow.addEventListener("click", (ev) => {
     const btn = ev.target.closest ? ev.target.closest("[data-visor]") : null;
     if (!btn) return;
@@ -1425,6 +1478,11 @@
     el.showCompass.checked = state.showCompass;
     el.showLabels.checked = state.showLabels;
     applyVisor();
+    el.trim.value = String(state.fovTrim);
+    el.trimValue.textContent = "×" + state.fovTrim.toFixed(2);
+    for (const btn of el.basisRow.querySelectorAll("[data-basis]")) {
+      btn.setAttribute("aria-pressed", btn.dataset.basis === state.fovBasis ? "true" : "false");
+    }
     syncLocationInputs();
     syncTimeInputs();
     refresh(true);
