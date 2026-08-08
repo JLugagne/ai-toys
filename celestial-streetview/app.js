@@ -20,6 +20,7 @@
   let SUN_COLOR = "#ffc24a";
   let MOON_COLOR = "#cfe3ff";
   const HUD_HALO = "rgba(0,8,16,0.8)";
+  const HUD_SHADE = "rgba(0,10,20,0.6)";
   const HUD_MONO = "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
   // Keeps the canvas chrome clear of the DOM header bar; must match --hud-top.
   const HUD_TOP = 46;
@@ -57,6 +58,7 @@
     showPaths: true,
     showCompass: true,
     showLabels: true,
+    visor: 0.25,
   };
 
   const el = {
@@ -96,6 +98,7 @@
     searchResults: document.getElementById("search-results"),
     searchStatus: document.getElementById("search-status"),
     panelsToggle: document.getElementById("panels-toggle"),
+    visorRow: document.getElementById("visor-row"),
   };
 
   const ctx = el.canvas.getContext("2d");
@@ -317,6 +320,27 @@
     ctx.font = (weight || 500) + " " + size + "px " + HUD_MONO;
   }
 
+  /* Strokes the current path twice: a wider dark backing, then the ink. Without
+     it, cyan line work disappears into a bright sky or pale masonry — and
+     dimming the photograph enough to fix that would defeat the point. */
+  function inkStroke(color, width, dash) {
+    if (dash) ctx.setLineDash(dash);
+    ctx.lineWidth = width + 2.5;
+    ctx.strokeStyle = HUD_SHADE;
+    ctx.stroke();
+    ctx.lineWidth = width;
+    ctx.strokeStyle = color;
+    ctx.stroke();
+    if (dash) ctx.setLineDash([]);
+  }
+
+  function inkRect(x, y, size, color) {
+    ctx.fillStyle = HUD_SHADE;
+    ctx.fillRect(x - size / 2 - 1.5, y - size / 2 - 1.5, size + 3, size + 3);
+    ctx.fillStyle = color;
+    ctx.fillRect(x - size / 2, y - size / 2, size, size);
+  }
+
   function hudLabel(text, x, y, color, align, baseline) {
     ctx.textAlign = align || "center";
     ctx.textBaseline = baseline || "middle";
@@ -399,11 +423,7 @@
         if (!first) first = p;
         last = p;
       }
-      ctx.strokeStyle = alt > 0 ? HUD_DIM : HUD_FAINT;
-      ctx.lineWidth = 1;
-      ctx.setLineDash(alt > 0 ? [] : [4, 5]);
-      ctx.stroke();
-      ctx.setLineDash([]);
+      inkStroke(alt > 0 ? HUD_DIM : HUD_FAINT, 1.25, alt > 0 ? null : [4, 5]);
       const tag = (alt > 0 ? "+" : "") + alt;
       if (first && first.x > 34) hudLabel(tag, clamp(first.x - 7, 22, w - 22), first.y, HUD_DIM, "right");
       if (last && last.x < w - 34) hudLabel(tag, clamp(last.x + 7, 22, w - 22), last.y, HUD_DIM, "left");
@@ -416,20 +436,18 @@
     const gap = 30;
     if (horizonY > -60 && horizonY < h + 60) {
       ctx.save();
-      ctx.strokeStyle = HUD_INK;
-      ctx.lineWidth = 1.5;
       ctx.beginPath();
       ctx.moveTo(0, horizonY);
       ctx.lineTo(w / 2 - gap, horizonY);
       ctx.moveTo(w / 2 + gap, horizonY);
       ctx.lineTo(w, horizonY);
-      ctx.stroke();
+      inkStroke(HUD_INK, 1.75);
       ctx.beginPath();
       ctx.moveTo(w / 2 - gap, horizonY);
       ctx.lineTo(w / 2 - gap, horizonY + 7);
       ctx.moveTo(w / 2 + gap, horizonY);
       ctx.lineTo(w / 2 + gap, horizonY + 7);
-      ctx.stroke();
+      inkStroke(HUD_INK, 1.5);
       ctx.restore();
     }
     hudFont(11, 700);
@@ -438,12 +456,10 @@
       if (!p || p.x < 14 || p.x > w - 14) continue;
       const y = clamp(p.y, 16, h - 26);
       ctx.save();
-      ctx.strokeStyle = HUD_INK;
-      ctx.lineWidth = 1.25;
       ctx.beginPath();
       ctx.moveTo(p.x, y - 6);
       ctx.lineTo(p.x, y + 6);
-      ctx.stroke();
+      inkStroke(HUD_INK, 1.5);
       ctx.restore();
       hudLabel(compassName(az), p.x, y + 18, HUD_INK, "center");
     }
@@ -474,11 +490,9 @@
       const cardinal = whole % 45 === 0;
       const major = whole % 15 === 0;
       ctx.beginPath();
-      ctx.strokeStyle = cardinal ? HUD_INK : HUD_DIM;
-      ctx.lineWidth = cardinal ? 1.5 : 1;
       ctx.moveTo(x, tickBase);
       ctx.lineTo(x, tickBase - (cardinal ? 11 : major ? 8 : 5));
-      ctx.stroke();
+      inkStroke(cardinal ? HUD_INK : HUD_DIM, cardinal ? 1.75 : 1.25);
       if (cardinal) hudLabel(compassName(whole), x, HUD_TOP + 18, HUD_INK, "center");
       else if (major) hudLabel(String(Math.round(whole)), x, HUD_TOP + 18, HUD_DIM, "center");
     }
@@ -497,19 +511,16 @@
     const cx = w / 2;
     const cy = h / 2;
     ctx.save();
-    ctx.strokeStyle = HUD_INK;
-    ctx.lineWidth = 1.25;
     ctx.beginPath();
     ctx.arc(cx, cy, 7, 0, Math.PI * 2);
-    ctx.stroke();
+    inkStroke(HUD_INK, 1.5);
     ctx.beginPath();
     for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
       ctx.moveTo(cx + dx * 12, cy + dy * 12);
       ctx.lineTo(cx + dx * 21, cy + dy * 21);
     }
-    ctx.stroke();
-    ctx.fillStyle = HUD_INK;
-    ctx.fillRect(cx - 1, cy - 1, 2, 2);
+    inkStroke(HUD_INK, 1.5);
+    inkRect(cx, cy, 2, HUD_INK);
     ctx.restore();
   }
 
@@ -518,14 +529,12 @@
     const m = 9;
     const t = HUD_TOP + 52;
     ctx.save();
-    ctx.strokeStyle = HUD_DIM;
-    ctx.lineWidth = 1.5;
     for (const [x, y, sx, sy] of [[m, t, 1, 1], [w - m, t, -1, 1], [m, h - m, 1, -1], [w - m, h - m, -1, -1]]) {
       ctx.beginPath();
       ctx.moveTo(x + sx * arm, y);
       ctx.lineTo(x, y);
       ctx.lineTo(x, y + sy * arm);
-      ctx.stroke();
+      inkStroke(HUD_DIM, 1.75);
     }
     ctx.restore();
   }
@@ -533,10 +542,6 @@
 
   function drawPath(cam, samples, color, w, h) {
     ctx.save();
-    ctx.strokeStyle = color;
-    ctx.lineWidth = 1.5;
-    ctx.globalAlpha = 0.8;
-    ctx.setLineDash(color === MOON_COLOR ? [3, 5] : [9, 4]);
     ctx.beginPath();
     let pen = false;
     for (const s of samples) {
@@ -549,18 +554,15 @@
       else ctx.moveTo(p.x, p.y);
       pen = true;
     }
-    ctx.stroke();
-    ctx.setLineDash([]);
+    inkStroke(color, 2, color === MOON_COLOR ? [3, 5] : [9, 4]);
 
-    ctx.globalAlpha = 1;
     hudFont(9, 600);
     for (const s of samples) {
       if (!s.up || s.minute % 60 !== 0 || s.minute === 1440) continue;
       const p = project(cam, vecOf(s.az, s.alt));
       if (!p || p.x < 0 || p.x > w || p.y < 0 || p.y > h) continue;
       const major = s.minute % 180 === 0;
-      ctx.fillStyle = color;
-      ctx.fillRect(p.x - (major ? 2.5 : 1.5), p.y - (major ? 2.5 : 1.5), major ? 5 : 3, major ? 5 : 3);
+      inkRect(p.x, p.y, major ? 5 : 3, color);
       if (state.showLabels && major) {
         hudLabel(pad(s.minute / 60) + "00", p.x, p.y - 12, color, "center");
       }
@@ -590,14 +592,12 @@
   function drawTargetBracket(x, y, size, color) {
     const arm = size * 0.42;
     ctx.save();
-    ctx.strokeStyle = color;
-    ctx.lineWidth = 1.5;
     for (const [sx, sy] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {
       ctx.beginPath();
       ctx.moveTo(x + sx * size - sx * arm, y + sy * size);
       ctx.lineTo(x + sx * size, y + sy * size);
       ctx.lineTo(x + sx * size, y + sy * size - sy * arm);
-      ctx.stroke();
+      inkStroke(color, 1.75);
     }
     ctx.restore();
   }
@@ -611,13 +611,11 @@
     const ty = ly - 12;
 
     ctx.save();
-    ctx.strokeStyle = color;
-    ctx.lineWidth = 1;
     ctx.beginPath();
     ctx.moveTo(x + dir * size * 0.72, y - size * 0.72);
     ctx.lineTo(lx, ly);
     ctx.lineTo(tx, ty);
-    ctx.stroke();
+    inkStroke(color, 1.25);
     ctx.restore();
 
     const anchor = flip ? "right" : "left";
@@ -674,11 +672,9 @@
     const y = cy + dy * t;
 
     ctx.save();
-    ctx.strokeStyle = color;
-    ctx.lineWidth = 1.25;
     ctx.beginPath();
     ctx.arc(x, y, 7, 0, Math.PI * 2);
-    ctx.stroke();
+    inkStroke(color, 1.5);
 
     ctx.translate(x, y);
     ctx.rotate(Math.atan2(dy, dx));
@@ -887,6 +883,7 @@
           showPaths: state.showPaths,
           showCompass: state.showCompass,
           showLabels: state.showLabels,
+          visor: state.visor,
         })
       );
     } catch (err) {
@@ -902,7 +899,7 @@
       saved = null;
     }
     if (!saved) return;
-    for (const k of ["lat", "lon", "tz", "heading", "pitch", "fov"]) {
+    for (const k of ["lat", "lon", "tz", "heading", "pitch", "fov", "visor"]) {
       if (typeof saved[k] === "number" && isFinite(saved[k])) state[k] = saved[k];
     }
     for (const k of ["showPaths", "showCompass", "showLabels"]) {
@@ -1243,6 +1240,24 @@
     }
   });
 
+  /* The visor is a scrim between the panorama and the overlay: it buys HUD
+     contrast at the cost of image brightness, so how far to push it is the
+     viewer's call, not ours. */
+  function applyVisor() {
+    document.body.style.setProperty("--visor", String(state.visor));
+    for (const btn of el.visorRow.querySelectorAll("[data-visor]")) {
+      btn.setAttribute("aria-pressed", Number(btn.dataset.visor) === state.visor ? "true" : "false");
+    }
+  }
+
+  el.visorRow.addEventListener("click", (ev) => {
+    const btn = ev.target.closest ? ev.target.closest("[data-visor]") : null;
+    if (!btn) return;
+    state.visor = Number(btn.dataset.visor);
+    applyVisor();
+    saveState();
+  });
+
   el.panelsToggle.addEventListener("click", () => {
     const off = document.body.classList.toggle("panels-off");
     el.panelsToggle.setAttribute("aria-expanded", off ? "false" : "true");
@@ -1409,6 +1424,7 @@
     el.showPaths.checked = state.showPaths;
     el.showCompass.checked = state.showCompass;
     el.showLabels.checked = state.showLabels;
+    applyVisor();
     syncLocationInputs();
     syncTimeInputs();
     refresh(true);

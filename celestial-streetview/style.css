@@ -26,12 +26,13 @@ body.hud {
   --hud-hue: 205;
   --hud-ink: oklch(0.87 0.13 var(--hud-hue));
   --hud-ink-strong: oklch(0.97 0.04 var(--hud-hue));
-  --hud-ink-dim: oklch(0.8 0.08 var(--hud-hue) / 0.7);
-  --hud-line: oklch(0.8 0.12 var(--hud-hue) / 0.3);
-  --hud-faint: oklch(0.8 0.12 var(--hud-hue) / 0.16);
+  --hud-ink-dim: oklch(0.84 0.09 var(--hud-hue) / 0.85);
+  --hud-line: oklch(0.8 0.12 var(--hud-hue) / 0.32);
+  --hud-faint: oklch(0.82 0.12 var(--hud-hue) / 0.28);
+  --visor: 0.25;
   --hud-glow: oklch(0.87 0.16 var(--hud-hue) / 0.55);
   --hud-surface: oklch(0.19 0.035 var(--hud-hue) / 0.66);
-  --hud-canvas-panel: oklch(0.16 0.03 var(--hud-hue) / 0.55);
+  --hud-canvas-panel: oklch(0.16 0.03 var(--hud-hue) / 0.72);
   --hud-void: oklch(0.13 0.02 var(--hud-hue));
   --hud-sun: oklch(0.83 0.16 78);
   --hud-moon: oklch(0.92 0.03 250);
@@ -95,6 +96,17 @@ body.hud {
 .view-wrap.street .overlay {
   pointer-events: none;
   cursor: default;
+}
+
+/* Visor: a scrim slid between the photograph (z 0) and the HUD (z 2). Street
+   View only — the imageless sky view is already dark enough. */
+.view-wrap.street::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  background: oklch(0.12 0.02 var(--hud-hue) / var(--visor));
 }
 
 .overlay.dragging {
@@ -489,6 +501,27 @@ select {
 #panels-toggle {
   background: var(--hud-surface);
   backdrop-filter: blur(8px);
+}
+
+.visor-row {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  flex-wrap: wrap;
+}
+
+.visor-label {
+  font-size: 0.58rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--hud-ink-dim);
+  margin-inline-end: 0.2rem;
+}
+
+.visor-row .chip[aria-pressed="true"] {
+  background: var(--hud-ink);
+  color: var(--hud-void);
+  box-shadow: 0 0 14px var(--hud-glow);
 }
 
 .button-row {
