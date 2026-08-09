@@ -314,7 +314,18 @@
     const trim = mode === "street" || mode === "ar" ? clamp(state.fovTrim, 0.5, 2) : 1;
     const basis = mode === "street" || mode === "ar" ? state.fovBasis : "width";
     const ref = basis === "height" ? h : basis === "diagonal" ? Math.hypot(w, h) : w;
-    const f = (trim * ref) / 2 / Math.tan((fov / 2) * RAD);
+    let f = (trim * ref) / 2 / Math.tan((fov / 2) * RAD);
+
+    // The camera feed is laid out with object-fit: cover, which scales the
+    // stream until it covers the viewport and throws the overflow away. The
+    // field of view actually on screen is therefore NOT the camera's own, and
+    // treating the canvas width as if it spanned arFov puts the focal length
+    // out by the crop factor — four-fold for a landscape stream in a portrait
+    // viewport. Derive it from the stream's real pixels instead.
+    if (mode === "ar" && el.cam && el.cam.videoWidth > 0 && el.cam.videoHeight > 0) {
+      const cover = Math.max(w / el.cam.videoWidth, h / el.cam.videoHeight);
+      f = trim * ((el.cam.videoWidth / 2) / Math.tan((fov / 2) * RAD)) * cover;
+    }
     const hd = state.heading * RAD;
     const p = state.pitch * RAD;
     return {
@@ -518,28 +529,40 @@
     return img;
   }
 
+  // mapZoom is continuous so a pinch can scale smoothly; tiles are fetched at
+  // the nearest integer level and drawn at the fractional scale between.
+  function mapGeometry(w, h) {
+    const z = clamp(state.mapZoom, 2, 19);
+    const zi = Math.round(z);
+    const scale = Math.pow(2, z - zi);
+    const size = TILE * scale;
+    return {
+      zi,
+      size,
+      span: Math.pow(2, zi),
+      left: lonToWorldX(state.lon, zi) * size - w / 2,
+      top: latToWorldY(state.lat, zi) * size - h / 2,
+    };
+  }
+
   function drawMap(w, h) {
-    const z = Math.round(clamp(state.mapZoom, 2, 19));
-    const span = Math.pow(2, z);
-    const centerX = lonToWorldX(state.lon, z) * TILE;
-    const centerY = latToWorldY(state.lat, z) * TILE;
-    const left = centerX - w / 2;
-    const top = centerY - h / 2;
+    const g = mapGeometry(w, h);
 
     ctx.fillStyle = "#0a1520";
     ctx.fillRect(0, 0, w, h);
 
-    const x0 = Math.floor(left / TILE);
-    const y0 = Math.floor(top / TILE);
-    const x1 = Math.floor((left + w) / TILE);
-    const y1 = Math.floor((top + h) / TILE);
+    const x0 = Math.floor(g.left / g.size);
+    const y0 = Math.floor(g.top / g.size);
+    const x1 = Math.floor((g.left + w) / g.size);
+    const y1 = Math.floor((g.top + h) / g.size);
     for (let ty = y0; ty <= y1; ty++) {
-      if (ty < 0 || ty >= span) continue;
+      if (ty < 0 || ty >= g.span) continue;
       for (let tx = x0; tx <= x1; tx++) {
-        const wrapped = ((tx % span) + span) % span;
-        const img = getTile(z, wrapped, ty);
+        const wrapped = ((tx % g.span) + g.span) % g.span;
+        const img = getTile(g.zi, wrapped, ty);
         if (!img.complete || !img.naturalWidth) continue;
-        ctx.drawImage(img, Math.round(tx * TILE - left), Math.round(ty * TILE - top), TILE, TILE);
+        // Round up by a pixel so neighbouring tiles never show a seam.
+        ctx.drawImage(img, tx * g.size - g.left, ty * g.size - g.top, g.size + 1, g.size + 1);
       }
     }
 
@@ -609,12 +632,10 @@
   }
 
   function mapPointToLatLon(px, py, w, h) {
-    const z = Math.round(clamp(state.mapZoom, 2, 19));
-    const centerX = lonToWorldX(state.lon, z) * TILE;
-    const centerY = latToWorldY(state.lat, z) * TILE;
+    const g = mapGeometry(w, h);
     return {
-      lat: worldYToLat((centerY - h / 2 + py) / TILE, z),
-      lon: worldXToLon((centerX - w / 2 + px) / TILE, z),
+      lat: worldYToLat((g.top + py) / g.size, g.zi),
+      lon: worldXToLon((g.left + px) / g.size, g.zi),
     };
   }
 
@@ -1793,8 +1814,14 @@
       return false;
     }
     try {
+      const wrap = el.wrap.getBoundingClientRect();
       cameraStream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: { ideal: "environment" } },
+        // Asking for the viewport's shape keeps object-fit: cover from
+        // discarding most of the camera's field of view.
+        video: {
+          facingMode: { ideal: "environment" },
+          aspectRatio: { ideal: wrap.width / Math.max(1, wrap.height) },
+        },
         audio: false,
       });
     } catch (err) {
@@ -1807,7 +1834,23 @@
     } catch (err) {
       /* autoplay attribute covers the usual case */
     }
+    el.cam.addEventListener("loadedmetadata", reportCamera, { once: true });
+    reportCamera();
     return true;
+  }
+
+  // The crop factor decides the focal length, so show the numbers it came from.
+  function reportCamera() {
+    if (!el.cam.videoWidth) return;
+    const rect = el.wrap.getBoundingClientRect();
+    const cover = Math.max(rect.width / el.cam.videoWidth, rect.height / el.cam.videoHeight);
+    const shownFov = 2 * Math.atan(rect.width / 2 / (((el.cam.videoWidth / 2) / Math.tan((state.arFov / 2) * RAD)) * cover)) * DEG;
+    setStatus(
+      "Camera " + el.cam.videoWidth + "×" + el.cam.videoHeight +
+      " · assuming " + Math.round(state.arFov) + "° across the frame" +
+      " · " + shownFov.toFixed(0) + "° visible after crop"
+    );
+    draw();
   }
 
   function stopCamera() {
@@ -2248,12 +2291,20 @@
   let pinchStart = null;
 
   let mapDrag = null;
+  let mapPinch = null;
 
   el.canvas.addEventListener("pointerdown", (ev) => {
     if (mode === "map") {
       el.canvas.setPointerCapture(ev.pointerId);
-      mapDrag = { x: ev.clientX, y: ev.clientY, moved: 0 };
+      pointers.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
       el.canvas.classList.add("dragging");
+      if (pointers.size === 2) {
+        const [a, b] = [...pointers.values()];
+        mapPinch = { dist: Math.hypot(a.x - b.x, a.y - b.y), zoom: state.mapZoom };
+        mapDrag = null;
+      } else if (pointers.size === 1) {
+        mapDrag = { x: ev.clientX, y: ev.clientY, moved: 0 };
+      }
       return;
     }
     if (mode === "street") return;
@@ -2269,15 +2320,27 @@
 
   el.canvas.addEventListener("pointermove", (ev) => {
     if (mode === "map") {
+      if (pointers.has(ev.pointerId)) pointers.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
+      if (pointers.size === 2 && mapPinch) {
+        const [a, b] = [...pointers.values()];
+        const dist = Math.hypot(a.x - b.x, a.y - b.y);
+        if (dist > 0 && mapPinch.dist > 0) {
+          state.mapZoom = clamp(mapPinch.zoom + Math.log2(dist / mapPinch.dist), 2, 19);
+          updateReadouts();
+          draw();
+          saveState();
+        }
+        return;
+      }
       if (!mapDrag) return;
       const dx = ev.clientX - mapDrag.x;
       const dy = ev.clientY - mapDrag.y;
       mapDrag.moved += Math.abs(dx) + Math.abs(dy);
-      const z = Math.round(clamp(state.mapZoom, 2, 19));
+      const g = mapGeometry(el.canvas.clientWidth, el.canvas.clientHeight);
       // Dragging moves the site itself; only the map repaints until release, so
       // the astronomy is recomputed once rather than every frame.
-      state.lon = clamp(worldXToLon(lonToWorldX(state.lon, z) - dx / TILE, z), -180, 180);
-      state.lat = clamp(worldYToLat(latToWorldY(state.lat, z) - dy / TILE, z), -85, 85);
+      state.lon = clamp(worldXToLon(lonToWorldX(state.lon, g.zi) - dx / g.size, g.zi), -180, 180);
+      state.lat = clamp(worldYToLat(latToWorldY(state.lat, g.zi) - dy / g.size, g.zi), -85, 85);
       mapDrag.x = ev.clientX;
       mapDrag.y = ev.clientY;
       syncLocationInputs();
@@ -2320,7 +2383,19 @@
 
   function endPointer(ev) {
     if (mode === "map") {
-      if (!mapDrag) return;
+      pointers.delete(ev.pointerId);
+      if (pointers.size < 2) mapPinch = null;
+      if (pointers.size === 1) {
+        // A finger lifted mid-pinch: keep panning from where the other one is,
+        // and make sure its eventual release is not read as a tap.
+        const [only] = [...pointers.values()];
+        mapDrag = { x: only.x, y: only.y, moved: 99 };
+        return;
+      }
+      if (!mapDrag) {
+        el.canvas.classList.remove("dragging");
+        return;
+      }
       const rect = el.canvas.getBoundingClientRect();
       const tapped = mapDrag.moved < 5;
       mapDrag = null;
