@@ -170,6 +170,8 @@
     zone: null,
     mapZoom: 17,
     bodies: { sun: true, moon: true },
+    arFov: 65,
+    locationPinned: false,
   };
 
   const el = {
@@ -211,6 +213,10 @@
     panelsToggle: document.getElementById("panels-toggle"),
     modeRow: document.getElementById("mode-row"),
     bodyList: document.getElementById("body-list"),
+    panelTabs: document.getElementById("panel-tabs"),
+    cam: document.getElementById("cam"),
+    useSensors: document.getElementById("use-sensors"),
+    sensorStatus: document.getElementById("sensor-status"),
     visorRow: document.getElementById("visor-row"),
     autoTz: document.getElementById("auto-tz"),
     tzStatus: document.getElementById("tz-status"),
@@ -282,7 +288,9 @@
   }
 
   function makeCamera(w, h) {
-    const fov = clamp(state.fov, 5, 175);
+    // A phone camera reports no field of view either, so AR starts from a
+    // typical rear-camera value and leans on the same trim control.
+    const fov = clamp(mode === "ar" ? state.arFov : state.fov, 5, 175);
     // Street View exposes a zoom level, not a field of view; fov = 180/2^zoom is
     // the community-derived relation, and it is the one number in this pipeline
     // that no reference confirms. A wrong focal length is invisible at the view
@@ -296,8 +304,8 @@
     // a fact. Pick the one that holds still when you pan; the trim then takes
     // out any residual. Both apply over imagery only — the sky view sets its
     // own field of view exactly and needs no correction.
-    const trim = mode === "street" ? clamp(state.fovTrim, 0.5, 2) : 1;
-    const basis = mode === "street" ? state.fovBasis : "width";
+    const trim = mode === "street" || mode === "ar" ? clamp(state.fovTrim, 0.5, 2) : 1;
+    const basis = mode === "street" || mode === "ar" ? state.fovBasis : "width";
     const ref = basis === "height" ? h : basis === "diagonal" ? Math.hypot(w, h) : w;
     const f = (trim * ref) / 2 / Math.tan((fov / 2) * RAD);
     const hd = state.heading * RAD;
@@ -1082,7 +1090,7 @@
       drawSky(cam, w, h);
       drawGroundGrid(cam, w, h);
     }
-    drawVignette(w, h);
+    if (mode !== "ar") drawVignette(w, h);
     if (state.showCompass) {
       drawPitchLadder(cam, w, h);
       drawHorizon(cam, w, h);
@@ -1317,6 +1325,8 @@
           zone: state.zone,
           mapZoom: state.mapZoom,
           bodies: state.bodies,
+          arFov: state.arFov,
+          locationPinned: state.locationPinned,
         })
       );
     } catch (err) {
@@ -1332,10 +1342,10 @@
       saved = null;
     }
     if (!saved) return;
-    for (const k of ["lat", "lon", "tz", "heading", "pitch", "fov", "visor", "fovTrim", "mapZoom"]) {
+    for (const k of ["lat", "lon", "tz", "heading", "pitch", "fov", "visor", "fovTrim", "mapZoom", "arFov"]) {
       if (typeof saved[k] === "number" && isFinite(saved[k])) state[k] = saved[k];
     }
-    for (const k of ["showPaths", "showCompass", "showLabels", "autoTz"]) {
+    for (const k of ["showPaths", "showCompass", "showLabels", "autoTz", "locationPinned"]) {
       if (typeof saved[k] === "boolean") state[k] = saved[k];
     }
     if (typeof saved.zone === "string" && offsetForZone(saved.zone, Date.now()) !== null) {
@@ -1428,12 +1438,17 @@
     mode = next;
     el.wrap.classList.toggle("street", next === "street");
     el.wrap.classList.toggle("map", next === "map");
+    el.wrap.classList.toggle("ar", next === "ar");
     el.pano.hidden = next !== "street";
+    el.cam.hidden = next !== "ar";
+    if (next !== "ar") stopCamera();
     el.note.textContent =
       next === "street"
         ? "STREET VIEW · DRAG TO SLEW · ARROWS TO ADVANCE"
         : next === "map"
         ? "MAP · DRAG TO MOVE THE SITE · SCROLL TO ZOOM"
+        : next === "ar"
+        ? "LIVE CAMERA · POINT THE PHONE AT THE SKY"
         : "SKY VIEW · DRAG TO SLEW · SCROLL TO ZOOM";
     for (const btn of el.modeRow.querySelectorAll("[data-mode]")) {
       btn.setAttribute("aria-pressed", btn.dataset.mode === next ? "true" : "false");
@@ -1554,6 +1569,134 @@
     showPanoramaAt(state.lat, state.lon);
   }
 
+  /* ---------- Phone sensors ----------
+     The device-orientation frame is X=east, Y=north, Z=up, the same ENU frame
+     vecOf() already uses, so the camera axis maps straight onto a heading and
+     an altitude with no extra bookkeeping. The rear camera looks along -Z of
+     the device, and the W3C rotation is Rz(alpha)Rx(beta)Ry(gamma), so the
+     third column of that matrix, negated, is where the phone is pointed.
+     Screen rotation is a spin about that same axis, so it changes the roll we
+     do not model and can be ignored. */
+
+  let sensorsOn = false;
+
+  function orientationToView(alpha, beta, gamma) {
+    const a = alpha * RAD;
+    const b = beta * RAD;
+    const g = gamma * RAD;
+    const cA = Math.cos(a);
+    const sA = Math.sin(a);
+    const cB = Math.cos(b);
+    const sB = Math.sin(b);
+    const cG = Math.cos(g);
+    const sG = Math.sin(g);
+    const east = -(cA * sG + sA * sB * cG);
+    const north = -(sA * sG - cA * sB * cG);
+    const up = -(cB * cG);
+    return {
+      heading: Astro.norm360(Math.atan2(east, north) * DEG),
+      pitch: clamp(Math.asin(clamp(up, -1, 1)) * DEG, -89, 89),
+    };
+  }
+
+  function onOrientation(ev) {
+    let alpha = ev.alpha;
+    // iOS reports a relative alpha but supplies a true-north compass heading.
+    if (typeof ev.webkitCompassHeading === "number" && !isNaN(ev.webkitCompassHeading)) {
+      alpha = 360 - ev.webkitCompassHeading;
+    }
+    if (alpha === null || ev.beta === null || ev.gamma === null) return;
+    const view = orientationToView(alpha, ev.beta, ev.gamma);
+    state.heading = view.heading;
+    state.pitch = view.pitch;
+    updateReadouts();
+    draw();
+  }
+
+  async function startSensors() {
+    if (sensorsOn) return true;
+    if (typeof DeviceOrientationEvent === "undefined") {
+      el.sensorStatus.textContent = "This device exposes no orientation sensors.";
+      return false;
+    }
+    // iOS 13+ only hands them over from inside a user gesture.
+    if (typeof DeviceOrientationEvent.requestPermission === "function") {
+      try {
+        const granted = await DeviceOrientationEvent.requestPermission();
+        if (granted !== "granted") {
+          el.sensorStatus.textContent = "Motion access refused — drag to look around instead.";
+          return false;
+        }
+      } catch (err) {
+        el.sensorStatus.textContent = "Motion access must be granted from a tap.";
+        return false;
+      }
+    }
+    const absolute = "ondeviceorientationabsolute" in window;
+    window.addEventListener(absolute ? "deviceorientationabsolute" : "deviceorientation", onOrientation, true);
+    sensorsOn = true;
+    el.useSensors.checked = true;
+    el.sensorStatus.textContent = absolute
+      ? "Pointing with the phone. Compass accuracy depends on calibration — sweep a figure of eight if it drifts."
+      : "Pointing with the phone, using a relative compass; check north against a landmark.";
+    return true;
+  }
+
+  function stopSensors() {
+    if (!sensorsOn) return;
+    window.removeEventListener("deviceorientationabsolute", onOrientation, true);
+    window.removeEventListener("deviceorientation", onOrientation, true);
+    sensorsOn = false;
+    el.useSensors.checked = false;
+    el.sensorStatus.textContent = "";
+  }
+
+  /* ---------- Live camera ---------- */
+
+  let cameraStream = null;
+
+  async function startCamera() {
+    if (cameraStream) return true;
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      setStatus("This browser exposes no camera. AR needs a secure context (https or localhost).");
+      return false;
+    }
+    try {
+      cameraStream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { ideal: "environment" } },
+        audio: false,
+      });
+    } catch (err) {
+      setStatus("Camera refused or unavailable — " + (err && err.name ? err.name : "unknown error") + ".");
+      return false;
+    }
+    el.cam.srcObject = cameraStream;
+    try {
+      await el.cam.play();
+    } catch (err) {
+      /* autoplay attribute covers the usual case */
+    }
+    return true;
+  }
+
+  function stopCamera() {
+    if (!cameraStream) return;
+    for (const track of cameraStream.getTracks()) track.stop();
+    cameraStream = null;
+    el.cam.srcObject = null;
+  }
+
+  async function enableAr() {
+    setStatus("Starting the camera…");
+    if (!(await startCamera())) return;
+    setStatus("");
+    setMode("ar");
+    // Pointing by hand is the whole idea, but a refusal still leaves a usable
+    // drag-to-look AR view.
+    await startSensors();
+    draw();
+  }
+
   /* ---------- API key dialog ---------- */
 
   function openKeyDialog() {
@@ -1641,6 +1784,7 @@
       btn.textContent = p.name;
       btn.dataset.index = String(i);
       btn.addEventListener("click", () => {
+        state.locationPinned = true;
         state.zone = p.zone;
         zoneAnchor = { lat: p.lat, lon: p.lon };
         state.heading = p.heading;
@@ -1678,6 +1822,7 @@
       const lat = parseFloat(el.lat.value);
       const lon = parseFloat(el.lon.value);
       if (!isFinite(lat) || !isFinite(lon)) return;
+      state.locationPinned = true;
       applyLocation(lat, lon, false);
     });
     input.addEventListener("paste", (ev) => {
@@ -1708,6 +1853,7 @@
   }
 
   function applySearchHit(hit) {
+    state.locationPinned = true;
     clearResults();
     el.searchInput.value = hit.display_name;
     el.searchStatus.textContent = hit.display_name;
@@ -1836,6 +1982,10 @@
       enableStreetView();
       return;
     }
+    if (btn.dataset.mode === "ar") {
+      enableAr();
+      return;
+    }
     setMode(btn.dataset.mode);
     saveState();
   });
@@ -1846,22 +1996,44 @@
     draw();
   });
 
-  el.geolocate.addEventListener("click", () => {
+  function locate(explicit) {
     if (!navigator.geolocation) {
-      setStatus("This browser has no geolocation support.");
+      if (explicit) setStatus("This browser has no geolocation support.");
       return;
     }
     setStatus("Asking the browser for your position…");
     navigator.geolocation.getCurrentPosition(
       (pos) => {
         setStatus("");
-        state.tz = -new Date().getTimezoneOffset();
-        el.tz.value = String(state.tz);
+        if (explicit) state.locationPinned = true;
         applyLocation(pos.coords.latitude, pos.coords.longitude, false);
         syncTimeInputs();
+        saveState();
       },
-      () => setStatus("Could not get your position (permission denied or unavailable).")
+      () => {
+        // A refusal must not nag on every load.
+        state.locationPinned = true;
+        saveState();
+        setStatus(explicit ? "Could not get your position (permission denied or unavailable)." : "");
+      },
+      { enableHighAccuracy: false, timeout: 12000, maximumAge: 600000 }
     );
+  }
+
+  el.geolocate.addEventListener("click", () => locate(true));
+
+  el.useSensors.addEventListener("change", () => {
+    if (el.useSensors.checked) startSensors();
+    else stopSensors();
+  });
+
+  el.panelTabs.addEventListener("click", (ev) => {
+    const btn = ev.target.closest ? ev.target.closest("[data-panel]") : null;
+    if (!btn) return;
+    document.body.classList.toggle("panel-right-active", btn.dataset.panel === "right");
+    for (const tab of el.panelTabs.querySelectorAll("[data-panel]")) {
+      tab.setAttribute("aria-pressed", tab === btn ? "true" : "false");
+    }
   });
 
   function onDateTimeChanged() {
@@ -1953,7 +2125,7 @@
       el.canvas.classList.add("dragging");
       return;
     }
-    if (mode !== "sky") return;
+    if (mode === "street") return;
     el.canvas.setPointerCapture(ev.pointerId);
     pointers.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
     el.canvas.classList.add("dragging");
@@ -1981,7 +2153,7 @@
       draw();
       return;
     }
-    if (mode !== "sky" || !pointers.has(ev.pointerId)) return;
+    if (mode === "street" || !pointers.has(ev.pointerId)) return;
     pointers.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
 
     if (pointers.size === 2 && pinchStart) {
@@ -1995,7 +2167,7 @@
       return;
     }
     if (!dragLast) return;
-    const perPx = state.fov / el.canvas.clientWidth;
+    const perPx = (mode === "ar" ? state.arFov : state.fov) / el.canvas.clientWidth;
     state.heading = Astro.norm360(state.heading - (ev.clientX - dragLast.x) * perPx);
     state.pitch = clamp(state.pitch + (ev.clientY - dragLast.y) * perPx, -89, 89);
     dragLast = { x: ev.clientX, y: ev.clientY };
@@ -2044,9 +2216,13 @@
         saveState();
         return;
       }
-      if (mode !== "sky") return;
+      if (mode === "street") return;
       ev.preventDefault();
-      state.fov = clamp(state.fov * Math.exp(ev.deltaY * 0.0015), 10, 140);
+      if (mode === "ar") {
+        state.arFov = clamp(state.arFov * Math.exp(ev.deltaY * 0.0015), 20, 120);
+      } else {
+        state.fov = clamp(state.fov * Math.exp(ev.deltaY * 0.0015), 10, 140);
+      }
       updateReadouts();
       draw();
       saveState();
@@ -2095,8 +2271,11 @@
     } else if (storedKey()) {
       enableStreetView();
     } else {
-      setStatus("No Street View key yet — sky and map views need no key.");
+      setStatus("No Street View key yet — sky, map and AR need no key.");
     }
+    // First visit: offer to start from where the visitor actually is. Once a
+    // site has been chosen deliberately — or geolocation refused — never again.
+    if (!state.locationPinned) locate(false);
   }
 
   init();

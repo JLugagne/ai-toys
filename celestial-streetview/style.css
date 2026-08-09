@@ -71,6 +71,16 @@ body.hud {
   background: var(--hud-void);
 }
 
+.cam {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  inline-size: 100%;
+  block-size: 100%;
+  object-fit: cover;
+  background: #000;
+}
+
 .pano,
 .overlay {
   position: absolute;
@@ -100,7 +110,8 @@ body.hud {
 
 /* Visor: a scrim slid between the photograph (z 0) and the HUD (z 2). Street
    View only — the imageless sky view is already dark enough. */
-.view-wrap.street::before {
+.view-wrap.street::before,
+.view-wrap.ar::before {
   content: "";
   position: absolute;
   inset: 0;
@@ -516,6 +527,20 @@ select {
   text-transform: uppercase;
   color: var(--hud-ink-dim);
   margin-inline-end: 0.2rem;
+}
+
+.panel-tabs {
+  display: none;
+  gap: 0.25rem;
+  padding: 4px;
+  background: var(--hud-surface);
+  box-shadow: inset 0 0 0 1px var(--hud-line);
+  backdrop-filter: blur(8px);
+}
+
+.panel-tabs .chip[aria-pressed="true"] {
+  background: var(--hud-ink);
+  color: var(--hud-void);
 }
 
 .mode-row {
@@ -992,12 +1017,27 @@ button.secondary:hover {
     padding: 0 10px 10px;
   }
 
+  /* Both panels share one cell on a phone, so exactly one may be displayed at
+     a time — otherwise they stack invisibly and the later one wins. */
+  .panel-left,
   .panel-right {
     grid-area: left;
+    align-self: end;
+    max-block-size: 46dvh;
   }
 
-  .hud-panel {
-    max-block-size: 33dvh;
+  body:not(.panel-right-active) .panel-right,
+  body.panel-right-active .panel-left {
+    display: none;
+  }
+
+  .panel-tabs {
+    display: flex;
+  }
+
+  .hud-header {
+    flex-wrap: wrap;
+    gap: 8px;
   }
 
   .hud-sub {
@@ -1012,6 +1052,17 @@ button.secondary:hover {
   #sun-readout,
   #moon-readout {
     display: none;
+  }
+}
+
+/* A phone in portrait has room for the header row only if it wraps. */
+@media (max-width: 860px) and (orientation: portrait) {
+  body.hud {
+    --hud-top: 84px;
+  }
+
+  .hud-header {
+    align-content: center;
   }
 }
 

@@ -11,6 +11,7 @@
 </head>
 <body class="hud">
   <div class="view-wrap" id="view-wrap">
+    <video id="cam" class="cam" playsinline muted autoplay hidden></video>
     <div id="pano" class="pano" hidden></div>
     <canvas id="overlay" class="overlay"></canvas>
   </div>
@@ -26,6 +27,11 @@
         <button type="button" class="chip" data-mode="sky">Sky</button>
         <button type="button" class="chip" data-mode="map">Map</button>
         <button type="button" class="chip" data-mode="street">Street</button>
+        <button type="button" class="chip" data-mode="ar">AR</button>
+      </div>
+      <div class="panel-tabs" id="panel-tabs" role="group" aria-label="Panel">
+        <button type="button" class="chip" data-panel="left" aria-pressed="true">Site</button>
+        <button type="button" class="chip" data-panel="right" aria-pressed="false">Setup</button>
       </div>
       <p class="spec-line" id="spec-line"></p>
       <button type="button" class="chip" id="panels-toggle" aria-expanded="true">Panels</button>
@@ -103,8 +109,10 @@
       <label class="stacked"><span>FOV trim <b id="trim-value">×1.00</b></span>
         <input type="range" id="fov-trim" min="0.6" max="1.6" step="0.01" value="1" />
       </label>
+      <label class="check-line"><input type="checkbox" id="use-sensors" /> <span>Point with the phone (compass &amp; tilt)</span></label>
       <button type="button" class="secondary" id="key-btn">Street View imagery&hellip;</button>
       <p class="status-msg" id="status-msg"></p>
+      <p class="status-msg" id="sensor-status"></p>
     </section>
 
     <footer class="hud-footer">
