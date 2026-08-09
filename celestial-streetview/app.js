@@ -170,6 +170,7 @@
     zone: null,
     mapZoom: 17,
     bodies: { sun: true, moon: true },
+    showSensorRaw: false,
     arFov: 65,
     headingOffset: 0,
     locationPinned: false,
@@ -218,6 +219,8 @@
     cam: document.getElementById("cam"),
     useSensors: document.getElementById("use-sensors"),
     sensorStatus: document.getElementById("sensor-status"),
+    sensorRaw: document.getElementById("sensor-raw"),
+    showSensorRaw: document.getElementById("show-sensor-raw"),
     alignBlock: document.getElementById("align-block"),
     alignStart: document.getElementById("align-start"),
     alignConfirm: document.getElementById("align-confirm"),
@@ -1381,6 +1384,7 @@
           arFov: state.arFov,
           headingOffset: state.headingOffset,
           locationPinned: state.locationPinned,
+          showSensorRaw: state.showSensorRaw,
         })
       );
     } catch (err) {
@@ -1399,7 +1403,7 @@
     for (const k of ["lat", "lon", "tz", "heading", "pitch", "fov", "visor", "fovTrim", "mapZoom", "arFov", "headingOffset"]) {
       if (typeof saved[k] === "number" && isFinite(saved[k])) state[k] = saved[k];
     }
-    for (const k of ["showPaths", "showCompass", "showLabels", "autoTz", "locationPinned"]) {
+    for (const k of ["showPaths", "showCompass", "showLabels", "autoTz", "locationPinned", "showSensorRaw"]) {
       if (typeof saved[k] === "boolean") state[k] = saved[k];
     }
     if (typeof saved.zone === "string" && offsetForZone(saved.zone, Date.now()) !== null) {
@@ -1672,13 +1676,28 @@
     // your hand pointing at the floor, which is not the direction the cone is
     // meant to show. Only a first-person view should be steered by the sensor.
     if (mode === "map") return;
-    smoothHeading = smoothAngle(smoothHeading, pendingView.heading, 0.25);
+    // Straight up and straight down have no azimuth: the horizontal part of
+    // the camera axis vanishes and atan2 snaps to whatever the rounding says —
+    // a phone resting flat reads due south rather than "unknown". Hold the last
+    // usable bearing through that cone instead of letting it flip.
+    const degenerate = Math.abs(pendingView.pitch) > 85 && smoothHeading !== null;
+    if (!degenerate) smoothHeading = smoothAngle(smoothHeading, pendingView.heading, 0.25);
     smoothPitch = smoothPitch === null ? pendingView.pitch : smoothPitch + (pendingView.pitch - smoothPitch) * 0.25;
     // The magnetometer is routinely a good ten degrees out; headingOffset is
     // the correction the viewer dials in by dragging, and it must survive
     // every sensor update.
     state.heading = Astro.norm360(smoothHeading + state.headingOffset);
     state.pitch = clamp(smoothPitch, -89, 89);
+    if (state.showSensorRaw) {
+      const r = pendingView.raw;
+      el.sensorRaw.textContent =
+        (r.absolute ? "abs" : "rel") +
+        (r.compass === null ? "" : " compass " + r.compass.toFixed(0)) +
+        " · a " + r.alpha.toFixed(0) + " b " + r.beta.toFixed(0) + " g " + r.gamma.toFixed(0) +
+        " · screen " + r.screen + "°" +
+        " → hdg " + Math.round(state.heading) + " pitch " + Math.round(state.pitch) +
+        (degenerate ? " (near vertical: bearing held)" : "");
+    }
     updateReadouts();
     draw();
   }
@@ -1693,6 +1712,14 @@
     // Sensors fire faster than the display refreshes; coalesce to one repaint
     // per frame instead of redrawing per event.
     pendingView = orientationToView(alpha, ev.beta, ev.gamma);
+    pendingView.raw = {
+      alpha: alpha,
+      beta: ev.beta,
+      gamma: ev.gamma,
+      absolute: ev.absolute === true || ev.type === "deviceorientationabsolute",
+      compass: typeof ev.webkitCompassHeading === "number" ? ev.webkitCompassHeading : null,
+      screen: (screen.orientation && screen.orientation.angle) || 0,
+    };
     if (!sensorFrame) sensorFrame = requestAnimationFrame(applyPendingView);
   }
 
@@ -2215,6 +2242,12 @@
 
   el.geolocate.addEventListener("click", () => locate(true));
 
+  el.showSensorRaw.addEventListener("change", () => {
+    state.showSensorRaw = el.showSensorRaw.checked;
+    if (!state.showSensorRaw) el.sensorRaw.textContent = "";
+    saveState();
+  });
+
   el.useSensors.addEventListener("change", () => {
     if (el.useSensors.checked) startSensors();
     else stopSensors();
@@ -2487,6 +2520,7 @@
     el.showCompass.checked = state.showCompass;
     el.showLabels.checked = state.showLabels;
     el.autoTz.checked = state.autoTz;
+    el.showSensorRaw.checked = state.showSensorRaw;
     applyVisor();
     el.trim.value = String(state.fovTrim);
     el.trimValue.textContent = "×" + state.fovTrim.toFixed(2);
