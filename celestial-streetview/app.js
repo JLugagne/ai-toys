@@ -623,8 +623,23 @@
       );
     }
 
+    // Put the number on the ray: the spec line is hidden on a narrow screen,
+    // so this is the only place the heading can be checked against reality.
+    const ha = (state.heading - 90) * RAD;
+    hudFont(10, 700);
+    hudLabel(
+      "VIEW " + Math.round(Astro.norm360(state.heading)) + "° " + compassName(state.heading),
+      clamp(cx + Math.cos(ha) * (rayLen * 0.8 + 20), 70, w - 70),
+      clamp(cy + Math.sin(ha) * (rayLen * 0.8 + 20), 40, h - 30),
+      HUD_INK,
+      "center"
+    );
+
     hudFont(9, 600);
-    hudLabel("N", cx, cy - rayLen - 34, HUD_DIM, "center");
+    for (const [az, tag] of [[0, "N"], [90, "E"], [180, "S"], [270, "W"]]) {
+      const a = (az - 90) * RAD;
+      hudLabel(tag, cx + Math.cos(a) * (rayLen + 34), cy + Math.sin(a) * (rayLen + 34), HUD_DIM, "center");
+    }
     hudLabel("Z" + Math.round(state.mapZoom) + " · DRAG TO MOVE THE SITE · CLICK TO JUMP", cx, 26, HUD_DIM, "center");
     hudFont(9, 500);
     hudLabel("© OpenStreetMap contributors", w - 12, h - 12, HUD_DIM, "right");
@@ -1653,6 +1668,10 @@
   function applyPendingView() {
     sensorFrame = 0;
     if (!pendingView) return;
+    // The map is a plan view: while you are reading it the phone is lying in
+    // your hand pointing at the floor, which is not the direction the cone is
+    // meant to show. Only a first-person view should be steered by the sensor.
+    if (mode === "map") return;
     smoothHeading = smoothAngle(smoothHeading, pendingView.heading, 0.25);
     smoothPitch = smoothPitch === null ? pendingView.pitch : smoothPitch + (pendingView.pitch - smoothPitch) * 0.25;
     // The magnetometer is routinely a good ten degrees out; headingOffset is
