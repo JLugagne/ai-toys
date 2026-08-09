@@ -96,7 +96,9 @@
         <button type="button" class="chip" data-visor="0.25">Low</button>
         <button type="button" class="chip" data-visor="0.45">Med</button>
         <button type="button" class="chip" data-visor="0.65">High</button>
+        <button type="button" class="chip" data-visor="0.82">Max</button>
       </div>
+      <p class="hint">Dims the photograph &mdash; Street View and the live camera alike &mdash; so the overlay reads against a bright sky.</p>
 
       <h2 class="spaced">&#9656; Calibration</h2>
       <p class="hint">Street View reports a zoom level, never its field of view. If the bodies slide off the scenery as you pan, the focal length is off — correct it here.</p>
@@ -110,6 +112,15 @@
         <input type="range" id="fov-trim" min="0.6" max="1.6" step="0.01" value="1" />
       </label>
       <label class="check-line"><input type="checkbox" id="use-sensors" /> <span>Point with the phone (compass &amp; tilt)</span></label>
+      <div class="align-block" id="align-block" hidden>
+        <div class="visor-row">
+          <button type="button" class="chip" id="align-start">Align on a body&hellip;</button>
+          <button type="button" class="chip" id="align-confirm" hidden>Confirm</button>
+          <button type="button" class="chip" id="align-reset">Reset trim</button>
+        </div>
+        <div class="presets" id="align-picker" hidden></div>
+        <p class="status-msg" id="align-status"></p>
+      </div>
       <button type="button" class="secondary" id="key-btn">Street View imagery&hellip;</button>
       <p class="status-msg" id="status-msg"></p>
       <p class="status-msg" id="sensor-status"></p>

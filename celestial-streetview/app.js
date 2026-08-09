@@ -171,6 +171,7 @@
     mapZoom: 17,
     bodies: { sun: true, moon: true },
     arFov: 65,
+    headingOffset: 0,
     locationPinned: false,
   };
 
@@ -217,6 +218,12 @@
     cam: document.getElementById("cam"),
     useSensors: document.getElementById("use-sensors"),
     sensorStatus: document.getElementById("sensor-status"),
+    alignBlock: document.getElementById("align-block"),
+    alignStart: document.getElementById("align-start"),
+    alignConfirm: document.getElementById("align-confirm"),
+    alignReset: document.getElementById("align-reset"),
+    alignPicker: document.getElementById("align-picker"),
+    alignStatus: document.getElementById("align-status"),
     visorRow: document.getElementById("visor-row"),
     autoTz: document.getElementById("auto-tz"),
     tzStatus: document.getElementById("tz-status"),
@@ -1111,6 +1118,16 @@
       drawBearingTape(cam, w, h);
       drawReticle(w, h);
     }
+    if (alignTarget && current[alignTarget]) {
+      hudFont(11, 700);
+      hudLabel(
+        "ALIGN · PUT " + (BODY_LABELS[alignTarget] || alignTarget).toUpperCase() + " ON THE RETICLE",
+        w / 2,
+        h / 2 + 40,
+        bodyColor(alignTarget),
+        "center"
+      );
+    }
     drawFrame(w, h);
   }
 
@@ -1326,6 +1343,7 @@
           mapZoom: state.mapZoom,
           bodies: state.bodies,
           arFov: state.arFov,
+          headingOffset: state.headingOffset,
           locationPinned: state.locationPinned,
         })
       );
@@ -1342,7 +1360,7 @@
       saved = null;
     }
     if (!saved) return;
-    for (const k of ["lat", "lon", "tz", "heading", "pitch", "fov", "visor", "fovTrim", "mapZoom", "arFov"]) {
+    for (const k of ["lat", "lon", "tz", "heading", "pitch", "fov", "visor", "fovTrim", "mapZoom", "arFov", "headingOffset"]) {
       if (typeof saved[k] === "number" && isFinite(saved[k])) state[k] = saved[k];
     }
     for (const k of ["showPaths", "showCompass", "showLabels", "autoTz", "locationPinned"]) {
@@ -1448,7 +1466,7 @@
         : next === "map"
         ? "MAP · DRAG TO MOVE THE SITE · SCROLL TO ZOOM"
         : next === "ar"
-        ? "LIVE CAMERA · POINT THE PHONE AT THE SKY"
+        ? "LIVE CAMERA · POINT THE PHONE AT THE SKY · DRAG TO TRIM THE COMPASS"
         : "SKY VIEW · DRAG TO SLEW · SCROLL TO ZOOM";
     for (const btn of el.modeRow.querySelectorAll("[data-mode]")) {
       btn.setAttribute("aria-pressed", btn.dataset.mode === next ? "true" : "false");
@@ -1599,6 +1617,32 @@
     };
   }
 
+  let pendingView = null;
+  let sensorFrame = 0;
+  let smoothHeading = null;
+  let smoothPitch = null;
+
+  // Wrap-aware low pass. Raw fused orientation is noisy enough that the sky
+  // visibly shivers; 0.25 settles in a few frames without feeling laggy.
+  function smoothAngle(prev, next, k) {
+    if (prev === null) return next;
+    return prev + Astro.norm180(next - prev) * k;
+  }
+
+  function applyPendingView() {
+    sensorFrame = 0;
+    if (!pendingView) return;
+    smoothHeading = smoothAngle(smoothHeading, pendingView.heading, 0.25);
+    smoothPitch = smoothPitch === null ? pendingView.pitch : smoothPitch + (pendingView.pitch - smoothPitch) * 0.25;
+    // The magnetometer is routinely a good ten degrees out; headingOffset is
+    // the correction the viewer dials in by dragging, and it must survive
+    // every sensor update.
+    state.heading = Astro.norm360(smoothHeading + state.headingOffset);
+    state.pitch = clamp(smoothPitch, -89, 89);
+    updateReadouts();
+    draw();
+  }
+
   function onOrientation(ev) {
     let alpha = ev.alpha;
     // iOS reports a relative alpha but supplies a true-north compass heading.
@@ -1606,11 +1650,10 @@
       alpha = 360 - ev.webkitCompassHeading;
     }
     if (alpha === null || ev.beta === null || ev.gamma === null) return;
-    const view = orientationToView(alpha, ev.beta, ev.gamma);
-    state.heading = view.heading;
-    state.pitch = view.pitch;
-    updateReadouts();
-    draw();
+    // Sensors fire faster than the display refreshes; coalesce to one repaint
+    // per frame instead of redrawing per event.
+    pendingView = orientationToView(alpha, ev.beta, ev.gamma);
+    if (!sensorFrame) sensorFrame = requestAnimationFrame(applyPendingView);
   }
 
   async function startSensors() {
@@ -1636,9 +1679,10 @@
     window.addEventListener(absolute ? "deviceorientationabsolute" : "deviceorientation", onOrientation, true);
     sensorsOn = true;
     el.useSensors.checked = true;
+    el.alignBlock.hidden = false;
     el.sensorStatus.textContent = absolute
-      ? "Pointing with the phone. Compass accuracy depends on calibration — sweep a figure of eight if it drifts."
-      : "Pointing with the phone, using a relative compass; check north against a landmark.";
+      ? "Pointing with the phone. If north looks wrong, drag sideways to trim the compass."
+      : "Pointing with the phone on a relative compass — drag sideways to line north up with a landmark.";
     return true;
   }
 
@@ -1647,9 +1691,96 @@
     window.removeEventListener("deviceorientationabsolute", onOrientation, true);
     window.removeEventListener("deviceorientation", onOrientation, true);
     sensorsOn = false;
+    el.alignBlock.hidden = true;
+    cancelAlignment();
+    if (sensorFrame) cancelAnimationFrame(sensorFrame);
+    sensorFrame = 0;
+    pendingView = null;
+    smoothHeading = null;
+    smoothPitch = null;
     el.useSensors.checked = false;
     el.sensorStatus.textContent = "";
   }
+
+  /* ---------- Optional: trim the compass against a real body ----------
+     A phone magnetometer is routinely ten or more degrees out, and nothing on
+     the device can tell you by how much. A celestial body can: its azimuth is
+     known to a fraction of a degree from the ephemeris, so putting it on the
+     reticle turns it into an absolute reference. Nothing here runs unless the
+     viewer asks for it. */
+
+  let alignTarget = null;
+
+  function alignCandidates() {
+    return enabledBodies().filter((key) => current && current[key] && current[key].up);
+  }
+
+  function cancelAlignment() {
+    alignTarget = null;
+    el.alignPicker.hidden = true;
+    el.alignConfirm.hidden = true;
+  }
+
+  function openAlignPicker() {
+    const candidates = alignCandidates();
+    el.alignPicker.innerHTML = "";
+    if (!candidates.length) {
+      el.alignPicker.hidden = true;
+      el.alignStatus.textContent = "Nothing you have selected is above the horizon to sight on.";
+      return;
+    }
+    for (const key of candidates) {
+      const pos = current[key];
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.textContent = BODY_LABELS[key] + " " + pos.az.toFixed(0) + "° / " + pos.alt.toFixed(0) + "°";
+      btn.addEventListener("click", () => {
+        alignTarget = key;
+        el.alignPicker.hidden = true;
+        el.alignConfirm.hidden = false;
+        el.alignStatus.textContent = "Put " + BODY_LABELS[key] + " on the reticle, then tap Confirm.";
+        draw();
+      });
+      el.alignPicker.appendChild(btn);
+    }
+    el.alignPicker.hidden = false;
+    el.alignStatus.textContent = "Pick something you can actually see.";
+  }
+
+  function confirmAlignment() {
+    const pos = alignTarget && current[alignTarget];
+    if (!pos) {
+      cancelAlignment();
+      return;
+    }
+    const previous = state.headingOffset;
+    // The reticle is the view centre, so state.heading is exactly where the
+    // phone is aimed; the gap to the true azimuth is the compass error.
+    const correction = Astro.norm180(pos.az - state.heading);
+    const tiltError = pos.apparentAlt - state.pitch;
+    state.headingOffset = Astro.norm180(state.headingOffset + correction);
+    state.heading = pos.az;
+    el.alignStatus.textContent =
+      "Trimmed " + (correction >= 0 ? "+" : "") + correction.toFixed(1) + "° on " + BODY_LABELS[alignTarget] +
+      " (offset now " + (state.headingOffset >= 0 ? "+" : "") + state.headingOffset.toFixed(1) +
+      "°, was " + (previous >= 0 ? "+" : "") + previous.toFixed(1) + "°). Tilt was out by " + tiltError.toFixed(1) + "°.";
+    cancelAlignment();
+    saveState();
+    updateReadouts();
+    draw();
+  }
+
+  function resetTrim() {
+    state.headingOffset = 0;
+    cancelAlignment();
+    el.alignStatus.textContent = "Compass trim cleared.";
+    saveState();
+    draw();
+  }
+
+  el.alignStart.addEventListener("click", openAlignPicker);
+  el.alignConfirm.addEventListener("click", confirmAlignment);
+  el.alignReset.addEventListener("click", resetTrim);
 
   /* ---------- Live camera ---------- */
 
@@ -2132,7 +2263,7 @@
     if (pointers.size === 1) dragLast = { x: ev.clientX, y: ev.clientY };
     if (pointers.size === 2) {
       const [a, b] = [...pointers.values()];
-      pinchStart = { dist: Math.hypot(a.x - b.x, a.y - b.y), fov: state.fov };
+      pinchStart = { dist: Math.hypot(a.x - b.x, a.y - b.y), fov: mode === "ar" ? state.arFov : state.fov };
     }
   });
 
@@ -2160,7 +2291,9 @@
       const [a, b] = [...pointers.values()];
       const dist = Math.hypot(a.x - b.x, a.y - b.y);
       if (dist > 0) {
-        state.fov = clamp((pinchStart.fov * pinchStart.dist) / dist, 10, 140);
+        const zoomed = (pinchStart.fov * pinchStart.dist) / dist;
+        if (mode === "ar") state.arFov = clamp(zoomed, 20, 120);
+        else state.fov = clamp(zoomed, 10, 140);
         updateReadouts();
         draw();
       }
@@ -2168,8 +2301,18 @@
     }
     if (!dragLast) return;
     const perPx = (mode === "ar" ? state.arFov : state.fov) / el.canvas.clientWidth;
-    state.heading = Astro.norm360(state.heading - (ev.clientX - dragLast.x) * perPx);
-    state.pitch = clamp(state.pitch + (ev.clientY - dragLast.y) * perPx, -89, 89);
+    const dx = (ev.clientX - dragLast.x) * perPx;
+    const dy = (ev.clientY - dragLast.y) * perPx;
+    if (mode === "ar" && sensorsOn) {
+      // The phone decides where it points; a drag can only trim the compass.
+      // Pitch comes from gravity and is trustworthy, so it stays untouched.
+      state.headingOffset = Astro.norm180(state.headingOffset - dx);
+      state.heading = Astro.norm360(state.heading - dx);
+      el.sensorStatus.textContent = "Compass trimmed by " + state.headingOffset.toFixed(0) + "°.";
+    } else {
+      state.heading = Astro.norm360(state.heading - dx);
+      state.pitch = clamp(state.pitch + dy, -89, 89);
+    }
     dragLast = { x: ev.clientX, y: ev.clientY };
     updateReadouts();
     draw();
