@@ -631,7 +631,8 @@
     const ha = (state.heading - 90) * RAD;
     hudFont(10, 700);
     hudLabel(
-      "VIEW " + Math.round(Astro.norm360(state.heading)) + "° " + compassName(state.heading),
+      "VIEW " + Math.round(Astro.norm360(state.heading)) + "° " + compassName(state.heading) +
+        (Math.abs(state.headingOffset) > 0.5 ? "  (TRIM " + (state.headingOffset >= 0 ? "+" : "") + Math.round(state.headingOffset) + "°)" : ""),
       clamp(cx + Math.cos(ha) * (rayLen * 0.8 + 20), 70, w - 70),
       clamp(cy + Math.sin(ha) * (rayLen * 0.8 + 20), 40, h - 30),
       HUD_INK,
@@ -1248,7 +1249,10 @@
       state.pitch.toFixed(0) +
       "° / " +
       Math.round(state.fov) +
-      "° fov";
+      "° fov" +
+      (Math.abs(state.headingOffset) > 0.5
+        ? " · trim " + (state.headingOffset >= 0 ? "+" : "") + Math.round(state.headingOffset) + "°"
+        : "");
   }
 
   /* ---------- refresh orchestration ---------- */
@@ -1695,7 +1699,9 @@
         (r.compass === null ? "" : " compass " + r.compass.toFixed(0)) +
         " · a " + r.alpha.toFixed(0) + " b " + r.beta.toFixed(0) + " g " + r.gamma.toFixed(0) +
         " · screen " + r.screen + "°" +
-        " → hdg " + Math.round(state.heading) + " pitch " + Math.round(state.pitch) +
+        " → raw " + Math.round(Astro.norm360(smoothHeading)) +
+        (Math.abs(state.headingOffset) > 0.5 ? " trim " + (state.headingOffset >= 0 ? "+" : "") + state.headingOffset.toFixed(0) : "") +
+        " = hdg " + Math.round(state.heading) + " pitch " + Math.round(state.pitch) +
         (degenerate ? " (near vertical: bearing held)" : "");
     }
     updateReadouts();
@@ -1746,7 +1752,7 @@
     window.addEventListener(absolute ? "deviceorientationabsolute" : "deviceorientation", onOrientation, true);
     sensorsOn = true;
     el.useSensors.checked = true;
-    el.alignBlock.hidden = false;
+    syncTrimVisibility();
     el.sensorStatus.textContent = absolute
       ? "Pointing with the phone. If north looks wrong, drag sideways to trim the compass."
       : "Pointing with the phone on a relative compass — drag sideways to line north up with a landmark.";
@@ -1758,8 +1764,8 @@
     window.removeEventListener("deviceorientationabsolute", onOrientation, true);
     window.removeEventListener("deviceorientation", onOrientation, true);
     sensorsOn = false;
-    el.alignBlock.hidden = true;
     cancelAlignment();
+    syncTrimVisibility();
     if (sensorFrame) cancelAnimationFrame(sensorFrame);
     sensorFrame = 0;
     pendingView = null;
@@ -1832,6 +1838,7 @@
       " (offset now " + (state.headingOffset >= 0 ? "+" : "") + state.headingOffset.toFixed(1) +
       "°, was " + (previous >= 0 ? "+" : "") + previous.toFixed(1) + "°). Tilt was out by " + tiltError.toFixed(1) + "°.";
     cancelAlignment();
+    syncTrimVisibility();
     saveState();
     updateReadouts();
     draw();
@@ -1841,7 +1848,9 @@
     state.headingOffset = 0;
     cancelAlignment();
     el.alignStatus.textContent = "Compass trim cleared.";
+    syncTrimVisibility();
     saveState();
+    updateReadouts();
     draw();
   }
 
@@ -2161,6 +2170,13 @@
     for (const btn of el.visorRow.querySelectorAll("[data-visor]")) {
       btn.setAttribute("aria-pressed", Number(btn.dataset.visor) === state.visor ? "true" : "false");
     }
+  }
+
+  function syncTrimVisibility() {
+    // A leftover trim is applied in every mode, so its undo button cannot be
+    // hidden behind the sensor toggle that happened to create it.
+    el.alignBlock.hidden = !sensorsOn && Math.abs(state.headingOffset) <= 0.5;
+    el.alignStart.hidden = !sensorsOn;
   }
 
   function applyCalibration() {
@@ -2521,6 +2537,7 @@
     el.showLabels.checked = state.showLabels;
     el.autoTz.checked = state.autoTz;
     el.showSensorRaw.checked = state.showSensorRaw;
+    syncTrimVisibility();
     applyVisor();
     el.trim.value = String(state.fovTrim);
     el.trimValue.textContent = "×" + state.fovTrim.toFixed(2);
