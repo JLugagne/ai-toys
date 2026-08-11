@@ -503,6 +503,16 @@ select {
   background: oklch(0.8 0.12 var(--hud-hue) / 0.1);
 }
 
+.chip:disabled,
+.chip:disabled:hover,
+input:disabled {
+  opacity: 0.32;
+  cursor: not-allowed;
+  box-shadow: inset 0 0 0 1px var(--hud-line);
+  color: var(--hud-ink-dim);
+  background: transparent;
+}
+
 .presets button[aria-pressed="true"] {
   background: var(--hud-ink);
   color: var(--hud-void);

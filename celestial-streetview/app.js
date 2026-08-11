@@ -159,6 +159,9 @@
     utcMs: Date.now(),
     heading: 250,
     pitch: 8,
+    // Only AR can roll, and only from the sensor, so this is derived state kept
+    // for the readouts — never restored, or a stale value would tilt the HUD.
+    roll: 0,
     fov: 90,
     showPaths: true,
     showCompass: true,
@@ -172,6 +175,7 @@
     bodies: { sun: true, moon: true },
     showSensorRaw: false,
     arFov: 65,
+    arFovShape: null,
     headingOffset: 0,
     locationPinned: false,
   };
@@ -298,8 +302,14 @@
   }
 
   function makeCamera(w, h) {
-    // A phone camera reports no field of view either, so AR starts from a
-    // typical rear-camera value and leans on the same trim control.
+    // In AR, arFov is the field of view visible *across the viewport*, not the
+    // lens's own. Nothing in the platform reports a camera's field of view, and
+    // the browser is free to crop and rotate the stream on its way to the
+    // screen, so deriving one from videoWidth is unsound: the same phone can
+    // hand over 1280x720 or 720x1280 for the same lens, and those two imply
+    // focal lengths 1.78x apart. Measuring what is on screen instead cannot be
+    // wrong that way, because whatever the browser did is already baked into
+    // what the viewer sees and calibrates against by pinching.
     const fov = clamp(mode === "ar" ? state.arFov : state.fov, 5, 175);
     // Street View exposes a zoom level, not a field of view; fov = 180/2^zoom is
     // the community-derived relation, and it is the one number in this pipeline
@@ -314,21 +324,23 @@
     // a fact. Pick the one that holds still when you pan; the trim then takes
     // out any residual. Both apply over imagery only — the sky view sets its
     // own field of view exactly and needs no correction.
-    const trim = mode === "street" || mode === "ar" ? clamp(state.fovTrim, 0.5, 2) : 1;
-    const basis = mode === "street" || mode === "ar" ? state.fovBasis : "width";
+    const trim = mode === "street" ? clamp(state.fovTrim, 0.5, 2) : 1;
+    const basis = mode === "street" ? state.fovBasis : "width";
     const ref = basis === "height" ? h : basis === "diagonal" ? Math.hypot(w, h) : w;
-    let f = (trim * ref) / 2 / Math.tan((fov / 2) * RAD);
+    const f = (trim * ref) / 2 / Math.tan((fov / 2) * RAD);
 
-    // The camera feed is laid out with object-fit: cover, which scales the
-    // stream until it covers the viewport and throws the overflow away. The
-    // field of view actually on screen is therefore NOT the camera's own, and
-    // treating the canvas width as if it spanned arFov puts the focal length
-    // out by the crop factor — four-fold for a landscape stream in a portrait
-    // viewport. Derive it from the stream's real pixels instead.
-    if (mode === "ar" && el.cam && el.cam.videoWidth > 0 && el.cam.videoHeight > 0) {
-      const cover = Math.max(w / el.cam.videoWidth, h / el.cam.videoHeight);
-      f = trim * ((el.cam.videoWidth / 2) / Math.tan((fov / 2) * RAD)) * cover;
+    // AR is the only mode where the overlay has to agree with a photograph the
+    // viewer is holding, and a hand rolls. Heading and pitch cannot express
+    // that: they force the top of the screen to point at the zenith, so any
+    // roll rotates the image and not the overlay, and the bodies slide off the
+    // scenery by twice the sine of half the roll — about 4 degrees at 20
+    // degrees off-axis for the 10 degrees nobody notices they are holding.
+    // sensorBasis carries the whole orientation, so use it as it stands.
+    if (mode === "ar" && sensorsOn && sensorBasis) {
+      return { f, cx: w / 2, cy: h / 2, fwd: sensorBasis.fwd, right: sensorBasis.right, up: sensorBasis.up };
     }
+    // Sky is synthetic and Street renders its panorama upright, so neither can
+    // disagree with a photograph and both stay level.
     const hd = state.heading * RAD;
     const p = state.pitch * RAD;
     return {
@@ -339,6 +351,49 @@
       right: [Math.cos(hd), -Math.sin(hd), 0],
       up: [-Math.sin(hd) * Math.sin(p), -Math.cos(hd) * Math.sin(p), Math.cos(p)],
     };
+  }
+
+  // Where the horizon crosses the screen. It is the great circle z = 0, and a
+  // great circle through the camera centre always projects to a straight line —
+  // but only an unrolled camera puts that line flat across the frame, so solve
+  // it properly rather than reaching for cy + f tan(pitch).
+  function horizonLine(cam, w, h) {
+    const rz = cam.right[2];
+    const uz = cam.up[2];
+    const k = cam.f * cam.fwd[2];
+    let a;
+    let b;
+    if (Math.abs(uz) >= Math.abs(rz)) {
+      if (Math.abs(uz) < 1e-9) return null;
+      const yAt = (x) => cam.cy + (rz * (x - cam.cx) + k) / uz;
+      a = { x: -w, y: yAt(-w) };
+      b = { x: 2 * w, y: yAt(2 * w) };
+    } else {
+      const xAt = (y) => cam.cx + (uz * (y - cam.cy) - k) / rz;
+      a = { x: xAt(-h), y: -h };
+      b = { x: xAt(2 * h), y: 2 * h };
+    }
+    const dx = b.x - a.x;
+    const dy = b.y - a.y;
+    const len = Math.hypot(dx, dy);
+    if (!isFinite(len) || len < 1e-6) return null;
+    const ux = dx / len;
+    const uy = dy / len;
+    // Foot of the perpendicular from the reticle: the label gap sits there, and
+    // its distance says whether the line reaches the frame at all.
+    const t = (w / 2 - a.x) * ux + (h / 2 - a.y) * uy;
+    const mx = a.x + ux * t;
+    const my = a.y + uy * t;
+    if (Math.hypot(mx - w / 2, my - h / 2) > Math.hypot(w, h) / 2 + 60) return null;
+    return { a, b, ux, uy, mx, my };
+  }
+
+  // Vertical component of the sky direction under a screen point — used to tell
+  // which side of the horizon is ground once the frame can be rolled.
+  function skyZAt(cam, x, y) {
+    const a = (x - cam.cx) / cam.f;
+    const b = -(y - cam.cy) / cam.f;
+    return a * cam.right[2] + b * cam.up[2] + cam.fwd[2];
   }
 
   function project(cam, v) {
@@ -465,6 +520,8 @@
 
   function drawSky(cam, w, h) {
     const pal = skyPalette(current.sun.alt);
+    // Sky mode never rolls — it has no photograph to agree with — so the ground
+    // stays a plain rectangle under a flat horizon. AR uses horizonLine().
     const horizonY = cam.cy + cam.f * Math.tan(state.pitch * RAD);
     const skyBottom = clamp(horizonY, 0, h);
     const grad = ctx.createLinearGradient(0, -h * 0.5, 0, skyBottom);
@@ -744,7 +801,10 @@
   // Rungs of constant altitude. They are small circles, not great circles, so
   // they genuinely curve — sampling in azimuth keeps them honest.
   function drawPitchLadder(cam, w, h) {
-    const halfFov = clamp(state.fov * 0.62, 10, 88);
+    // Sample wide enough to reach the screen corners. Deriving the half-angle
+    // from the camera covers every mode and every roll, where a fraction of
+    // state.fov covered neither AR nor a tilted frame.
+    const halfFov = clamp(Math.atan(Math.hypot(w, h) / 2 / cam.f) * DEG, 10, 88);
     ctx.save();
     hudFont(10, 600);
     for (let alt = -80; alt <= 80; alt += 10) {
@@ -782,21 +842,30 @@
   }
 
   function drawHorizon(cam, w, h) {
-    const horizonY = cam.cy + cam.f * Math.tan(state.pitch * RAD);
+    const line = horizonLine(cam, w, h);
     const gap = 30;
-    if (horizonY > -60 && horizonY < h + 60) {
+    if (line) {
+      const { a, b, ux, uy, mx, my } = line;
+      // Ticks hang toward the ground, which is only "down the screen" when the
+      // frame is level, so take the normal that points below the horizon.
+      let nx = -uy;
+      let ny = ux;
+      if (skyZAt(cam, mx + nx, my + ny) > 0) {
+        nx = -nx;
+        ny = -ny;
+      }
       ctx.save();
       ctx.beginPath();
-      ctx.moveTo(0, horizonY);
-      ctx.lineTo(w / 2 - gap, horizonY);
-      ctx.moveTo(w / 2 + gap, horizonY);
-      ctx.lineTo(w, horizonY);
+      ctx.moveTo(a.x, a.y);
+      ctx.lineTo(mx - ux * gap, my - uy * gap);
+      ctx.moveTo(mx + ux * gap, my + uy * gap);
+      ctx.lineTo(b.x, b.y);
       inkStroke(HUD_INK, 1.75);
       ctx.beginPath();
-      ctx.moveTo(w / 2 - gap, horizonY);
-      ctx.lineTo(w / 2 - gap, horizonY + 7);
-      ctx.moveTo(w / 2 + gap, horizonY);
-      ctx.lineTo(w / 2 + gap, horizonY + 7);
+      ctx.moveTo(mx - ux * gap, my - uy * gap);
+      ctx.lineTo(mx - ux * gap + nx * 7, my - uy * gap + ny * 7);
+      ctx.moveTo(mx + ux * gap, my + uy * gap);
+      ctx.lineTo(mx + ux * gap + nx * 7, my + uy * gap + ny * 7);
       inkStroke(HUD_INK, 1.5);
       ctx.restore();
     }
@@ -1004,10 +1073,13 @@
   }
 
   function drawOffscreenMarker(cam, pos, label, color, w, h) {
-    const dh = Astro.norm180(pos.az - state.heading);
-    const dv = pos.apparentAlt - state.pitch;
-    let dx = dh;
-    let dy = -dv;
+    // Point at where the body really lies in the frame. Comparing azimuth and
+    // altitude against the heading and pitch assumes an upright screen, so the
+    // arrow drifts off the body by the roll; the camera axes do not.
+    const v = vecOf(pos.az, pos.apparentAlt);
+    const offAxis = Math.acos(clamp(dot(v, cam.fwd), -1, 1)) * DEG;
+    let dx = dot(v, cam.right);
+    let dy = -dot(v, cam.up);
     const len = Math.hypot(dx, dy);
     if (len < 1e-6) return;
     dx /= len;
@@ -1041,7 +1113,7 @@
 
     if (state.showLabels) {
       hudFont(9, 700);
-      const off = Math.round(Math.hypot(dh, dv));
+      const off = Math.round(offAxis);
       hudLabel(
         label.toUpperCase() + " " + off + "° OFF-AXIS",
         clamp(x, 72, w - 72),
@@ -1386,6 +1458,7 @@
           mapZoom: state.mapZoom,
           bodies: state.bodies,
           arFov: state.arFov,
+          arFovShape: state.arFovShape,
           headingOffset: state.headingOffset,
           locationPinned: state.locationPinned,
           showSensorRaw: state.showSensorRaw,
@@ -1415,6 +1488,7 @@
       zoneAnchor = { lat: state.lat, lon: state.lon };
     }
     if (["width", "height", "diagonal"].includes(saved.fovBasis)) state.fovBasis = saved.fovBasis;
+    if (typeof saved.arFovShape === "string") state.arFovShape = saved.arFovShape;
     if (saved.bodies && typeof saved.bodies === "object") {
       const restored = {};
       for (const key of BODY_ORDER) if (saved.bodies[key] === true) restored[key] = true;
@@ -1510,13 +1584,14 @@
         : next === "map"
         ? "MAP · DRAG TO MOVE THE SITE · SCROLL TO ZOOM"
         : next === "ar"
-        ? "LIVE CAMERA · POINT THE PHONE AT THE SKY · DRAG TO TRIM THE COMPASS"
+        ? "LIVE CAMERA · POINT AT THE SKY · DRAG TO TRIM NORTH · PINCH TO MATCH THE LENS"
         : "SKY VIEW · DRAG TO SLEW · SCROLL TO ZOOM";
     for (const btn of el.modeRow.querySelectorAll("[data-mode]")) {
       btn.setAttribute("aria-pressed", btn.dataset.mode === next ? "true" : "false");
     }
     if (next === "street") startPovSync();
     else stopPovSync();
+    syncFovControls();
     updateReadouts();
     draw();
   }
@@ -1633,45 +1708,102 @@
 
   /* ---------- Phone sensors ----------
      The device-orientation frame is X=east, Y=north, Z=up, the same ENU frame
-     vecOf() already uses, so the camera axis maps straight onto a heading and
-     an altitude with no extra bookkeeping. The rear camera looks along -Z of
-     the device, and the W3C rotation is Rz(alpha)Rx(beta)Ry(gamma), so the
-     third column of that matrix, negated, is where the phone is pointed.
-     Screen rotation is a spin about that same axis, so it changes the roll we
-     do not model and can be ignored. */
+     vecOf() already uses, so the device axes map straight into the sky with no
+     extra bookkeeping. The W3C rotation is Rz(alpha)Rx(beta)Ry(gamma); its
+     columns are the device's own x, y and z expressed in that frame. The rear
+     camera looks along -z, and the screen's right and up are x and y turned by
+     however far the screen itself has rotated.
+
+     Keeping all three axes — rather than boiling them down to a heading and a
+     pitch — is what makes the overlay stay on the scenery: the discarded third
+     axis is the roll, and a hand always has some. */
 
   let sensorsOn = false;
+  let sensorBasis = null;
 
-  function orientationToView(alpha, beta, gamma) {
+  function deviceBasis(alpha, beta, gamma, screenAngle) {
     const a = alpha * RAD;
     const b = beta * RAD;
     const g = gamma * RAD;
+    const s = (screenAngle || 0) * RAD;
     const cA = Math.cos(a);
     const sA = Math.sin(a);
     const cB = Math.cos(b);
     const sB = Math.sin(b);
     const cG = Math.cos(g);
     const sG = Math.sin(g);
-    const east = -(cA * sG + sA * sB * cG);
-    const north = -(sA * sG - cA * sB * cG);
-    const up = -(cB * cG);
+    const cS = Math.cos(s);
+    const sS = Math.sin(s);
+    const x = [cA * cG - sA * sB * sG, sA * cG + cA * sB * sG, -cB * sG];
+    const y = [-sA * cB, cA * cB, sB];
+    const z = [cA * sG + sA * sB * cG, sA * sG - cA * sB * cG, cB * cG];
     return {
-      heading: Astro.norm360(Math.atan2(east, north) * DEG),
-      pitch: clamp(Math.asin(clamp(up, -1, 1)) * DEG, -89, 89),
+      fwd: [-z[0], -z[1], -z[2]],
+      right: [cS * x[0] - sS * y[0], cS * x[1] - sS * y[1], cS * x[2] - sS * y[2]],
+      up: [sS * x[0] + cS * y[0], sS * x[1] + cS * y[1], sS * x[2] + cS * y[2]],
     };
+  }
+
+  function viewFromBasis(b) {
+    return {
+      heading: Astro.norm360(Math.atan2(b.fwd[0], b.fwd[1]) * DEG),
+      pitch: clamp(Math.asin(clamp(b.fwd[2], -1, 1)) * DEG, -89, 89),
+      roll: Math.atan2(b.right[2], b.up[2]) * DEG,
+    };
+  }
+
+  // A compass error is a turn about the vertical, so the trim is one too — it
+  // must move all three axes together or it would introduce a roll of its own.
+  function turnAboutVertical(b, deg) {
+    if (!deg) return b;
+    const t = deg * RAD;
+    const c = Math.cos(t);
+    const s = Math.sin(t);
+    const rot = (v) => [v[0] * c + v[1] * s, -v[0] * s + v[1] * c, v[2]];
+    return { fwd: rot(b.fwd), right: rot(b.right), up: rot(b.up) };
+  }
+
+  // Low pass on the orientation itself rather than on a heading and a pitch
+  // separately, which would fight each other near the zenith where the two
+  // stop being independent. Consecutive readings are always a small rotation
+  // apart, so blending the axes and re-orthonormalising tracks a proper slerp
+  // closely at a fraction of the machinery.
+  //
+  // The gain follows how fast the phone is moving. A fixed 0.25 per frame is
+  // about 58 ms of lag, and at a brisk 60 deg/s pan that is three and a half
+  // degrees of overlay trailing the video — the same size as the roll error and
+  // the same symptom. Filter hard when still to kill magnetometer shiver,
+  // barely at all when moving to kill the lag.
+  function blendBasis(prev, next) {
+    if (!prev) return next;
+    const swing = Math.max(
+      Math.acos(clamp(dot(prev.fwd, next.fwd), -1, 1)),
+      Math.acos(clamp(dot(prev.right, next.right), -1, 1))
+    ) * DEG;
+    const k = clamp(0.12 + swing / 6, 0.12, 0.85);
+    const mix = (a, b) => [a[0] + (b[0] - a[0]) * k, a[1] + (b[1] - a[1]) * k, a[2] + (b[2] - a[2]) * k];
+    const unit = (v) => {
+      const n = Math.hypot(v[0], v[1], v[2]);
+      return n < 1e-9 ? null : [v[0] / n, v[1] / n, v[2] / n];
+    };
+    const fwd = unit(mix(prev.fwd, next.fwd));
+    let up = mix(prev.up, next.up);
+    if (!fwd) return next;
+    const d = dot(up, fwd);
+    up = unit([up[0] - d * fwd[0], up[1] - d * fwd[1], up[2] - d * fwd[2]]);
+    if (!up) return next;
+    const right = [
+      fwd[1] * up[2] - fwd[2] * up[1],
+      fwd[2] * up[0] - fwd[0] * up[2],
+      fwd[0] * up[1] - fwd[1] * up[0],
+    ];
+    return { fwd, right, up };
   }
 
   let pendingView = null;
   let sensorFrame = 0;
+  let smoothBasis = null;
   let smoothHeading = null;
-  let smoothPitch = null;
-
-  // Wrap-aware low pass. Raw fused orientation is noisy enough that the sky
-  // visibly shivers; 0.25 settles in a few frames without feeling laggy.
-  function smoothAngle(prev, next, k) {
-    if (prev === null) return next;
-    return prev + Astro.norm180(next - prev) * k;
-  }
 
   function applyPendingView() {
     sensorFrame = 0;
@@ -1680,29 +1812,38 @@
     // your hand pointing at the floor, which is not the direction the cone is
     // meant to show. Only a first-person view should be steered by the sensor.
     if (mode === "map") return;
-    // Straight up and straight down have no azimuth: the horizontal part of
-    // the camera axis vanishes and atan2 snaps to whatever the rounding says —
-    // a phone resting flat reads due south rather than "unknown". Hold the last
-    // usable bearing through that cone instead of letting it flip.
-    const degenerate = Math.abs(pendingView.pitch) > 85 && smoothHeading !== null;
-    if (!degenerate) smoothHeading = smoothAngle(smoothHeading, pendingView.heading, 0.25);
-    smoothPitch = smoothPitch === null ? pendingView.pitch : smoothPitch + (pendingView.pitch - smoothPitch) * 0.25;
+    smoothBasis = blendBasis(smoothBasis, pendingView.basis);
     // The magnetometer is routinely a good ten degrees out; headingOffset is
     // the correction the viewer dials in by dragging, and it must survive
     // every sensor update.
-    state.heading = Astro.norm360(smoothHeading + state.headingOffset);
-    state.pitch = clamp(smoothPitch, -89, 89);
+    sensorBasis = turnAboutVertical(smoothBasis, state.headingOffset);
+    const view = viewFromBasis(sensorBasis);
+    // Straight up and straight down have no azimuth: the horizontal part of
+    // the camera axis vanishes and atan2 snaps to whatever the rounding says —
+    // a phone resting flat reads due south rather than "unknown". Hold the last
+    // usable bearing through that cone. This is a readout and a Street View
+    // heading only; sensorBasis itself must never be held, or the AR overlay
+    // would freeze in the one place people point a phone at a planet.
+    const degenerate = Math.abs(view.pitch) > 85 && smoothHeading !== null;
+    if (!degenerate) smoothHeading = view.heading;
+    state.heading = Astro.norm360(smoothHeading === null ? view.heading : smoothHeading);
+    state.pitch = view.pitch;
+    state.roll = view.roll;
     if (state.showSensorRaw) {
       const r = pendingView.raw;
+      const raw = viewFromBasis(smoothBasis);
       el.sensorRaw.textContent =
         (r.absolute ? "abs" : "rel") +
         (r.compass === null ? "" : " compass " + r.compass.toFixed(0)) +
         " · a " + r.alpha.toFixed(0) + " b " + r.beta.toFixed(0) + " g " + r.gamma.toFixed(0) +
         " · screen " + r.screen + "°" +
-        " → raw " + Math.round(Astro.norm360(smoothHeading)) +
+        " → raw " + Math.round(raw.heading) +
         (Math.abs(state.headingOffset) > 0.5 ? " trim " + (state.headingOffset >= 0 ? "+" : "") + state.headingOffset.toFixed(0) : "") +
-        " = hdg " + Math.round(state.heading) + " pitch " + Math.round(state.pitch) +
-        (degenerate ? " (near vertical: bearing held)" : "");
+        " = hdg " + Math.round(state.heading) +
+        " pitch " + Math.round(state.pitch) +
+        " roll " + Math.round(state.roll) +
+        (degenerate ? " (near vertical: bearing held)" : "") +
+        (mode === "ar" ? " · " + describeArOptics() : "");
     }
     updateReadouts();
     draw();
@@ -1715,16 +1856,17 @@
       alpha = 360 - ev.webkitCompassHeading;
     }
     if (alpha === null || ev.beta === null || ev.gamma === null) return;
+    const screenAngle = (screen.orientation && screen.orientation.angle) || 0;
     // Sensors fire faster than the display refreshes; coalesce to one repaint
     // per frame instead of redrawing per event.
-    pendingView = orientationToView(alpha, ev.beta, ev.gamma);
+    pendingView = { basis: deviceBasis(alpha, ev.beta, ev.gamma, screenAngle) };
     pendingView.raw = {
       alpha: alpha,
       beta: ev.beta,
       gamma: ev.gamma,
       absolute: ev.absolute === true || ev.type === "deviceorientationabsolute",
       compass: typeof ev.webkitCompassHeading === "number" ? ev.webkitCompassHeading : null,
-      screen: (screen.orientation && screen.orientation.angle) || 0,
+      screen: screenAngle,
     };
     if (!sensorFrame) sensorFrame = requestAnimationFrame(applyPendingView);
   }
@@ -1769,8 +1911,10 @@
     if (sensorFrame) cancelAnimationFrame(sensorFrame);
     sensorFrame = 0;
     pendingView = null;
+    smoothBasis = null;
+    sensorBasis = null;
     smoothHeading = null;
-    smoothPitch = null;
+    state.roll = 0;
     el.useSensors.checked = false;
     el.sensorStatus.textContent = "";
   }
@@ -1894,17 +2038,39 @@
     return true;
   }
 
-  // The crop factor decides the focal length, so show the numbers it came from.
+  // A first guess at how much sky the viewport actually shows. object-fit:
+  // cover throws away whatever does not fit, so a landscape stream in a
+  // portrait viewport can leave barely twenty degrees across the screen. Key
+  // the lens estimate to the stream's *longer* side, which is the sensor's long
+  // axis whichever way round the browser hands the frame over. It is only a
+  // starting point — pinch settles it against the scenery, so the guess is made
+  // once per stream-and-viewport shape and never overwrites a pinched value.
+  const LENS_FOV_LONG_AXIS = 65;
+
+  function seedArFov() {
+    if (!el.cam.videoWidth || !el.cam.videoHeight) return;
+    const rect = el.wrap.getBoundingClientRect();
+    if (!rect.width || !rect.height) return;
+    const shape = el.cam.videoWidth + "×" + el.cam.videoHeight +
+      "@" + Math.round(rect.width) + "×" + Math.round(rect.height);
+    if (shape === state.arFovShape) return;
+    const long = Math.max(el.cam.videoWidth, el.cam.videoHeight);
+    const fLens = (long / 2) / Math.tan((LENS_FOV_LONG_AXIS / 2) * RAD);
+    const cover = Math.max(rect.width / el.cam.videoWidth, rect.height / el.cam.videoHeight);
+    state.arFov = clamp(2 * Math.atan(rect.width / 2 / (fLens * cover)) * DEG, 8, 140);
+    state.arFovShape = shape;
+    saveState();
+  }
+
+  function describeArOptics() {
+    const size = el.cam.videoWidth ? el.cam.videoWidth + "×" + el.cam.videoHeight : "no stream";
+    return "cam " + size + " · " + Math.round(state.arFov) + "° across the screen";
+  }
+
   function reportCamera() {
     if (!el.cam.videoWidth) return;
-    const rect = el.wrap.getBoundingClientRect();
-    const cover = Math.max(rect.width / el.cam.videoWidth, rect.height / el.cam.videoHeight);
-    const shownFov = 2 * Math.atan(rect.width / 2 / (((el.cam.videoWidth / 2) / Math.tan((state.arFov / 2) * RAD)) * cover)) * DEG;
-    setStatus(
-      "Camera " + el.cam.videoWidth + "×" + el.cam.videoHeight +
-      " · assuming " + Math.round(state.arFov) + "° across the frame" +
-      " · " + shownFov.toFixed(0) + "° visible after crop"
-    );
+    seedArFov();
+    setStatus("Camera " + describeArOptics() + " — pinch until the bodies sit on the scenery.");
     draw();
   }
 
@@ -2179,6 +2345,16 @@
     el.alignStart.hidden = !sensorsOn;
   }
 
+  // The FOV trim and its basis only bear on Street View, where the panorama's
+  // field of view has to be inferred from a zoom level. AR takes it from the
+  // pinch instead, so leaving the slider live there would offer a second, worse
+  // control over the same number.
+  function syncFovControls() {
+    const usable = mode === "street";
+    el.trim.disabled = !usable;
+    for (const btn of el.basisRow.querySelectorAll("[data-basis]")) btn.disabled = !usable;
+  }
+
   function applyCalibration() {
     el.trimValue.textContent = "×" + state.fovTrim.toFixed(2);
     el.trim.value = String(state.fovTrim);
@@ -2423,7 +2599,7 @@
       const dist = Math.hypot(a.x - b.x, a.y - b.y);
       if (dist > 0) {
         const zoomed = (pinchStart.fov * pinchStart.dist) / dist;
-        if (mode === "ar") state.arFov = clamp(zoomed, 20, 120);
+        if (mode === "ar") state.arFov = clamp(zoomed, 8, 140);
         else state.fov = clamp(zoomed, 10, 140);
         updateReadouts();
         draw();
@@ -2505,7 +2681,7 @@
       if (mode === "street") return;
       ev.preventDefault();
       if (mode === "ar") {
-        state.arFov = clamp(state.arFov * Math.exp(ev.deltaY * 0.0015), 20, 120);
+        state.arFov = clamp(state.arFov * Math.exp(ev.deltaY * 0.0015), 8, 140);
       } else {
         state.fov = clamp(state.fov * Math.exp(ev.deltaY * 0.0015), 10, 140);
       }
